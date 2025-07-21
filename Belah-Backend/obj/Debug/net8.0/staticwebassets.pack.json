@@ -1,0 +1,25 @@
+{
+  "Files": [
+    {
+      "Id": "C:\\Users\\Test\\Documents\\belah\\Belah-Backend\\wwwroot\\uploads\\IMG_2912.JPG",
+      "PackagePath": "staticwebassets\\uploads\\IMG_2912.JPG"
+    },
+    {
+      "Id": "obj\\Debug\\net8.0\\staticwebassets\\msbuild.Belah-Backend.Microsoft.AspNetCore.StaticWebAssets.props",
+      "PackagePath": "build\\Microsoft.AspNetCore.StaticWebAssets.props"
+    },
+    {
+      "Id": "obj\\Debug\\net8.0\\staticwebassets\\msbuild.build.Belah-Backend.props",
+      "PackagePath": "build\\Belah-Backend.props"
+    },
+    {
+      "Id": "obj\\Debug\\net8.0\\staticwebassets\\msbuild.buildMultiTargeting.Belah-Backend.props",
+      "PackagePath": "buildMultiTargeting\\Belah-Backend.props"
+    },
+    {
+      "Id": "obj\\Debug\\net8.0\\staticwebassets\\msbuild.buildTransitive.Belah-Backend.props",
+      "PackagePath": "buildTransitive\\Belah-Backend.props"
+    }
+  ],
+  "ElementsToRemove": []
+}

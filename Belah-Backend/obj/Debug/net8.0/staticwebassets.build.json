@@ -1,0 +1,39 @@
+{
+  "Version": 1,
+  "Hash": "EB7gSeyDfuF0KyjWYC7drGWtEuklQcHlS8Me0zEjLyo=",
+  "Source": "Belah-Backend",
+  "BasePath": "_content/Belah-Backend",
+  "Mode": "Default",
+  "ManifestType": "Build",
+  "ReferencedProjectsConfiguration": [],
+  "DiscoveryPatterns": [
+    {
+      "Name": "Belah-Backend\\wwwroot",
+      "Source": "Belah-Backend",
+      "ContentRoot": "C:\\Users\\Test\\Documents\\belah\\Belah-Backend\\wwwroot\\",
+      "BasePath": "_content/Belah-Backend",
+      "Pattern": "**"
+    }
+  ],
+  "Assets": [
+    {
+      "Identity": "C:\\Users\\Test\\Documents\\belah\\Belah-Backend\\wwwroot\\uploads\\IMG_2912.JPG",
+      "SourceId": "Belah-Backend",
+      "SourceType": "Discovered",
+      "ContentRoot": "C:\\Users\\Test\\Documents\\belah\\Belah-Backend\\wwwroot\\",
+      "BasePath": "_content/Belah-Backend",
+      "RelativePath": "uploads/IMG_2912.JPG",
+      "AssetKind": "All",
+      "AssetMode": "All",
+      "AssetRole": "Primary",
+      "AssetMergeBehavior": "PreferTarget",
+      "AssetMergeSource": "",
+      "RelatedAsset": "",
+      "AssetTraitName": "",
+      "AssetTraitValue": "",
+      "CopyToOutputDirectory": "Never",
+      "CopyToPublishDirectory": "PreserveNewest",
+      "OriginalItemSpec": "wwwroot\\uploads\\IMG_2912.JPG"
+    }
+  ]
+}

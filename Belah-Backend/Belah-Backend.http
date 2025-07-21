@@ -1,0 +1,6 @@
+@Belah_Backend_HostAddress = http://localhost:5037
+
+GET {{Belah_Backend_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
