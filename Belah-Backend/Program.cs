@@ -5,13 +5,30 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowReactApp", policy =>
+    
+    // Policy for production frontend
+    options.AddPolicy("AllowProduction", policy =>
     {
-        policy.WithOrigins("http://localhost:3000")
+        policy.WithOrigins("http://simplyluxe.co.za") // live frontend
+              .AllowAnyHeader()
+              .AllowAnyMethod();
+    });
+
+    options.AddPolicy("AllowProduction", policy =>
+    {
+        policy.WithOrigins("http://localhost") // live frontend
+              .AllowAnyHeader()
+              .AllowAnyMethod();
+    });
+
+    options.AddPolicy("AllowProduction", policy =>
+    {
+        policy.WithOrigins("http://localhost:5000") // live frontend
               .AllowAnyHeader()
               .AllowAnyMethod();
     });
 });
+
 
 // Add services to the container.
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
@@ -32,7 +49,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+//app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();
 app.UseStaticFiles();

@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Belah-Backend")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+24a430dbedc95bd1d079efd35a1dd20b6d19a476")]
 [assembly: System.Reflection.AssemblyProductAttribute("Belah-Backend")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Belah-Backend")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
