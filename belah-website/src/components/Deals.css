@@ -1,0 +1,102 @@
+@keyframes pop {
+  0% {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.deals-page {
+  padding: 3rem 2rem;
+  /* background: linear-gradient(to right, #fcd34d, #f9a8d4, #c084fc);*/
+  background-color: aliceblues;
+  min-height: 100vh;
+  text-align: center;
+  font-family: 'Poppins', sans-serif;
+}
+
+.deals-title {
+  font-size: 3rem;
+  font-weight: 800;
+  color: #1f2937;
+  margin-bottom: 0.5rem;
+  text-shadow: 1px 1px 5px rgba(0, 0, 0, 0.15);
+}
+
+.deals-subtitle {
+  font-size: 1.25rem;
+  color: #7c3aed;
+  margin-bottom: 2rem;
+  font-weight: 600;
+}
+
+.deals-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 2rem;
+  justify-items: center;
+}
+
+.deal-card {
+  background: white;
+  border-radius: 1.5rem;
+  padding: 1rem;
+  width: 100%;
+  max-width: 300px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+  transition: all 0.4s ease;
+  position: relative;
+  overflow: hidden;
+  border: 3px solid transparent;
+  animation: pop 0.5s ease-out forwards;
+}
+
+.deal-card:hover {
+  transform: scale(1.05);
+  border-color: #c084fc;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.25);
+}
+
+.deal-image {
+  width: 100%;
+  height: 200px;
+  object-fit: cover;
+  border-radius: 1rem;
+}
+
+.deal-info {
+  padding: 1rem 0;
+}
+
+.deal-info h3 {
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: #374151;
+  margin: 0.5rem 0;
+}
+
+.deal-price {
+  font-size: 1.2rem;
+  color: #ec4899;
+  font-weight: bold;
+  margin-bottom: 1rem;
+}
+
+.shop-now {
+  /*background: linear-gradient(to right, #f9a8d4, #c084fc);*/
+  background-color: aliceblues;
+  color: white;
+  font-weight: 600;
+  padding: 0.6rem 1.2rem;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.3s ease;
+}
+
+.shop-now:hover {
+  background: linear-gradient(to right, #c084fc, #f9a8d4);
+}

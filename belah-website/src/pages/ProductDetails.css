@@ -1,0 +1,94 @@
+.product-details {
+    display: flex;
+    align-items: flex-start; /* Align items to the start (top) of the flex container */
+    padding: 20px;
+  }
+  
+  .product-image {
+    max-width: 300px;
+    width: 100%;
+    height: auto;
+    margin-right: 20px; /* Add margin for spacing */
+    border-radius: 8px;
+  }
+  
+  .product-info {
+    flex: 1; /* Take up remaining space */
+    text-align: left; /* Align text to the left */
+  }
+  .fade-in {
+  animation: fadeIn 0.5s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(15px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.back-btn {
+  margin-bottom: 10px;
+  background-color: transparent;
+  border: none;
+  color: #333;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.back-btn:hover {
+  color: #007bff;
+}
+
+  .color-options {
+  display: flex;
+  gap: 10px;
+  margin-top: 5px;
+}
+
+.color-swatch {
+  width: 35px;
+  height: 35px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.color-swatch:hover {
+  transform: scale(1.1);
+}
+
+.color-swatch.selected {
+  border-color: #0071e3; /* Apple blue highlight */
+}
+
+.storage-options {
+  display: flex;
+  gap: 10px;
+  margin-top: 5px;
+}
+
+.storage-btn {
+  padding: 8px 14px;
+  border: 2px solid #ccc;
+  background: white;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.storage-btn:hover {
+  border-color: #888;
+}
+
+.storage-btn.selected {
+  border-color: #0071e3;
+  background-color: #e6f0ff;
+  font-weight: bold;
+}

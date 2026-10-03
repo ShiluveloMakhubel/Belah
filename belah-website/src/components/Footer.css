@@ -1,0 +1,57 @@
+.footer {
+  font-family: 'Segoe UI', sans-serif;
+  color: rgb(0, 0, 0);
+  padding: 2rem 0 0;
+ /* background: linear-gradient(to right, #fcd34d, #f9a8d4, #c084fc);*/
+  background-color: aliceblues;
+}
+
+.footer-gradient {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+.footer-container {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  max-width: 1200px;
+  padding: 2rem;
+  width: 100%;
+}
+
+.footer-section {
+  flex: 1 1 250px;
+  margin: 1rem;
+}
+
+.footer-section h4 {
+  font-size: 1.2rem;
+  margin-bottom: 1rem;
+  color: #000000;
+}
+
+.footer-section a {
+  color: #000000;
+  text-decoration: none;
+}
+
+.footer-section a:hover {
+  text-decoration: underline;
+}
+
+.social-icons {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.footer-bottom {
+  text-align: center;
+  padding: 1rem 0;
+  font-size: 0.9rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.3);
+  width: 100%;
+}
