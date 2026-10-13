@@ -1,15 +1,17 @@
 import React from 'react';
 import FeaturedProducts from '../components/FeaturedProducts';
-import Categories from '../components/Categories';
-import PromotionalBanner from '../components/PromotionalBanner';
-import Deals from '../components/Deals'; 
+import { Link } from 'react-router-dom';
 import './home.css';
 
 const Home = () => {
   return (
     <div className="home">
-    
-      <Deals />
+      <section className="home-hero">
+        <p className="home-eyebrow">BELAH · HAIR COLLECTION</p>
+        <h1>Find your next favourite look.</h1>
+        <p>Explore wigs, frontals, bundles, and more from the Belah collection.</p>
+        <Link to="/products" className="home-cta">Shop the collection</Link>
+      </section>
       <FeaturedProducts />
     </div>
   );

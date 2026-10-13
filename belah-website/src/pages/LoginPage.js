@@ -1,26 +1,35 @@
 import React, { useState } from 'react';
 import './LoginPage.css';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
+import { useAuth } from '../config/AuthContext';
+import { API_BASE_URL } from '../config/api';
 
 const LoginPage = () => {
   const navigate = useNavigate();
+  const { login } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({ username: '', password: '' });
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
+    if (error) setError('');
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
     if (!formData.username || !formData.password) {
-      alert('Please fill in all fields');
+      setError('Please fill in all fields');
       return;
     }
 
+    setLoading(true);
+    setError('');
+
     try {
-      const response = await fetch('http://localhost:5000/api/User/login', {
+      const response = await fetch(`${API_BASE_URL}/api/User/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -32,20 +41,29 @@ const LoginPage = () => {
       });
 
       if (!response.ok) {
-        const error = await response.text();
-        throw new Error(error || 'Login failed');
+        const errorText = await response.text();
+        throw new Error(errorText || 'Invalid username or password');
       }
 
       const result = await response.json();
-      console.log('Login successful:', result);
 
-      // Save token or user info here if needed
-      // localStorage.setItem('token', result.token);
+      // Store in auth context
+      login(result.token, {
+        userId: result.userId,
+        username: result.username,
+        role: result.role,
+      }, result.expiresAt);
 
-      navigate('/'); // Redirect to homepage
-    } catch (error) {
-      console.error('Login error:', error.message);
-      alert('Login failed: ' + error.message);
+      // If Admin, navigate to admin dashboard, else home
+      if (result.role === 'Admin') {
+        navigate('/admin');
+      } else {
+        navigate('/');
+      }
+    } catch (err) {
+      setError(err.message || 'Login failed. Please check your credentials.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -54,6 +72,8 @@ const LoginPage = () => {
       <div className="login-box">
         <h2 className="login-title">Belah Login</h2>
         <p className="login-subtitle">Welcome back! Please login to your account.</p>
+
+        {error && <div className="login-error-banner" style={{ color: '#dc2626', background: '#fee2e2', padding: '10px', borderRadius: '6px', marginBottom: '16px' }}>{error}</div>}
 
         <form onSubmit={handleSubmit} className="login-form">
           <div className="input-group">
@@ -65,6 +85,7 @@ const LoginPage = () => {
               onChange={handleChange}
               required
               placeholder="your_username"
+              disabled={loading}
             />
           </div>
           <div className="input-group">
@@ -77,21 +98,25 @@ const LoginPage = () => {
                 onChange={handleChange}
                 required
                 placeholder="Enter password"
+                disabled={loading}
               />
               <button
                 type="button"
                 className="toggle-password"
                 onClick={() => setShowPassword(!showPassword)}
+                disabled={loading}
               >
                 {showPassword ? 'Hide' : 'Show'}
               </button>
             </div>
           </div>
-          <button type="submit" className="login-btn">Sign In</button>
+          <button type="submit" className="login-btn" disabled={loading}>
+            {loading ? 'Signing in...' : 'Sign In'}
+          </button>
         </form>
 
         <p className="register-text">
-          Don’t have an account? <a href="/signup">Register</a>
+          Don’t have an account? <Link to="/signup">Register</Link>
         </p>
       </div>
     </div>

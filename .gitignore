@@ -1,0 +1,31 @@
+# .NET build output
+**/bin/
+**/obj/
+
+# Frontend dependencies and builds
+**/node_modules/
+**/build/
+**/dist/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# IDE and local tooling
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Logs and operating-system files
+*.log
+.DS_Store
+Thumbs.db
+
+# Local backups
+.local-backup/
+
+# Local backups
+.local-backup/

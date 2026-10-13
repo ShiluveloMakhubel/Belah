@@ -1,7 +1,1 @@
-.home
-{
-    
-  /*background: linear-gradient(to right, #fcd34d, #f9a8d4, #c084fc);*/
-  background-color: aliceblues;
-  font-family: 'Segoe UI', sans-serif;
-}
+.home{background:#fbf8f6;color:#342a27;font-family:Georgia,'Times New Roman',serif;padding-bottom:48px}.home-hero{min-height:360px;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;box-sizing:border-box;padding:64px max(24px,calc((100vw - 1160px)/2));background:linear-gradient(120deg,#f2e7e4,#f8f2ef 58%,#e7d8d3)}.home-eyebrow{font:600 .78rem Arial,sans-serif;letter-spacing:.18em;color:#805c5d}.home-hero h1{font-size:clamp(2.5rem,6vw,4.7rem);max-width:700px;line-height:1.04;margin:12px 0;color:#442e31}.home-hero>p:not(.home-eyebrow){font:1.12rem Arial,sans-serif;color:#665856}.home-cta{margin-top:16px;background:#563a3e;color:#fff;padding:14px 22px;border-radius:4px;text-decoration:none;font:600 .95rem Arial,sans-serif}.home-cta:focus-visible{outline:3px solid #9c6f72;outline-offset:3px}@media(max-width:600px){.home-hero{min-height:300px;padding:42px 22px}}

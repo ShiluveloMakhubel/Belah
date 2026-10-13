@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import './SignupPage.css';
+import { useNavigate, Link } from 'react-router-dom';
+import { API_BASE_URL } from '../config/api';
 
 const SignupPage = () => {
   const navigate = useNavigate();
@@ -10,11 +11,12 @@ const SignupPage = () => {
     password: '',
     confirmPassword: ''
   });
-
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
+    if (error) setError('');
   };
 
   const handleSubmit = async (e) => {
@@ -30,15 +32,23 @@ const SignupPage = () => {
       return;
     }
 
+    if (formData.password.length < 8) {
+      setError('Password must be at least 8 characters long');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
     try {
-      const response = await fetch('http://localhost:5000/api/User/register', {
+      const response = await fetch(`${API_BASE_URL}/api/User/register`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          username: formData.name,     // Backend expects 'Username'
-          email: formData.email,
+          username: formData.name.trim(),
+          email: formData.email.trim(),
           password: formData.password
         })
       });
@@ -49,12 +59,11 @@ const SignupPage = () => {
         return;
       }
 
-      // Success
-      const data = await response.json();
-      console.log('Registered:', data);
       navigate('/login');
     } catch (err) {
-      setError('An error occurred. Please try again.');
+      setError('A network error occurred. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -62,43 +71,50 @@ const SignupPage = () => {
     <div className="signup-container">
       <div className="signup-box">
         <h2 className="signup-title">Create Account</h2>
-        <p className="signup-subtitle">Join Belah today and enjoy our collection!</p>
+        <p className="signup-subtitle">Join Belah Hair for luxury hair and beauty products.</p>
+
+        {error && <div className="signup-error-banner" style={{ color: '#dc2626', background: '#fee2e2', padding: '10px', borderRadius: '6px', marginBottom: '16px' }}>{error}</div>}
 
         <form onSubmit={handleSubmit} className="signup-form">
-          {error && <p className="error-msg">{error}</p>}
           <div className="input-group">
-            <label>Name</label>
+            <label>Username</label>
             <input
               type="text"
               name="name"
               value={formData.name}
               onChange={handleChange}
-              placeholder="Full Name"
               required
+              placeholder="Username"
+              disabled={loading}
             />
           </div>
+
           <div className="input-group">
-            <label>Email</label>
+            <label>Email Address</label>
             <input
               type="email"
               name="email"
               value={formData.email}
               onChange={handleChange}
-              placeholder="you@example.com"
               required
+              placeholder="you@example.com"
+              disabled={loading}
             />
           </div>
+
           <div className="input-group">
-            <label>Password</label>
+            <label>Password (min 8 characters)</label>
             <input
               type="password"
               name="password"
               value={formData.password}
               onChange={handleChange}
-              placeholder="Password"
               required
+              placeholder="••••••••"
+              disabled={loading}
             />
           </div>
+
           <div className="input-group">
             <label>Confirm Password</label>
             <input
@@ -106,15 +122,19 @@ const SignupPage = () => {
               name="confirmPassword"
               value={formData.confirmPassword}
               onChange={handleChange}
-              placeholder="Confirm Password"
               required
+              placeholder="••••••••"
+              disabled={loading}
             />
           </div>
-          <button type="submit" className="signup-btn">Sign Up</button>
+
+          <button type="submit" className="signup-btn" disabled={loading}>
+            {loading ? 'Creating Account...' : 'Create Account'}
+          </button>
         </form>
 
         <p className="login-text">
-          Already have an account? <a href="/login">Login</a>
+          Already have an account? <Link to="/login">Sign In</Link>
         </p>
       </div>
     </div>

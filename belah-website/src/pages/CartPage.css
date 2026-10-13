@@ -97,3 +97,25 @@
 .checkout-btn:hover {
   background: #005bb5;
 }
+
+.checkout-btn:disabled {
+  background: #cccccc !important;
+  color: #666666 !important;
+  cursor: not-allowed !important;
+}
+
+.stock-warning {
+  color: #c81e1e;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.cart-alert {
+  padding: 12px 16px;
+  background-color: #fff3cd;
+  border: 1px solid #ffeeba;
+  color: #856404;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}

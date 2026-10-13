@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import axios from 'axios';
 import { 
     Container, 
     TextField, 
     Button, 
     Typography, 
-    Box 
+    Box,
+    FormControlLabel,
+    Checkbox
 } from '@mui/material';
+import apiClient from '../config/apiClient';
 
 const PostProduct = () => {
     const [product, setProduct] = useState({
@@ -15,16 +17,19 @@ const PostProduct = () => {
         price: '',
         imageUrl: '',
         category: '',
-        specification: ''
+        specification: '',
+        sku: '',
+        stockQuantity: 0,
+        isActive: true
     });
     const [imageFile, setImageFile] = useState(null); // Handle file uploads
     const [isSubmitting, setIsSubmitting] = useState(false); // Submission state
 
     const handleChange = (e) => {
-        const { name, value } = e.target;
+        const { name, value, type, checked } = e.target;
         setProduct((prevProduct) => ({
             ...prevProduct,
-            [name]: value,
+            [name]: type === 'checkbox' ? checked : value,
         }));
     };
 
@@ -34,6 +39,20 @@ const PostProduct = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+
+        const priceNum = parseFloat(product.price);
+        const stockNum = parseInt(product.stockQuantity, 10);
+
+        if (isNaN(priceNum) || priceNum < 0) {
+            alert('Price must be a valid non-negative number.');
+            return;
+        }
+
+        if (isNaN(stockNum) || stockNum < 0) {
+            alert('Stock quantity must be a non-negative integer.');
+            return;
+        }
+
         setIsSubmitting(true);
 
         try {
@@ -44,7 +63,7 @@ const PostProduct = () => {
                 const formData = new FormData();
                 formData.append('file', imageFile);
 
-                const uploadResponse = await axios.post('http://localhost:5037/api/products/upload', formData, {
+                const uploadResponse = await apiClient.post('/api/products/upload', formData, {
                     headers: {
                         'Content-Type': 'multipart/form-data'
                     }
@@ -54,8 +73,10 @@ const PostProduct = () => {
             }
 
             // Submit product details
-            const response = await axios.post('http://localhost:5037/api/products', {
+            const response = await apiClient.post('/api/products', {
                 ...product,
+                price: priceNum,
+                stockQuantity: stockNum,
                 imageUrl
             });
 
@@ -68,12 +89,16 @@ const PostProduct = () => {
                 price: '',
                 imageUrl: '',
                 category: '',
-                specification: ''
+                specification: '',
+                sku: '',
+                stockQuantity: 0,
+                isActive: true
             });
             setImageFile(null);
         } catch (error) {
             console.error('There was an error creating the product!', error);
-            alert('Failed to create the product. Please try again.');
+            const serverMessage = error.response?.data?.message || 'Failed to create the product. Please try again.';
+            alert(serverMessage);
         } finally {
             setIsSubmitting(false);
         }
@@ -98,6 +123,24 @@ const PostProduct = () => {
                     fullWidth
                 />
                 <TextField
+                    label="SKU (Stock Keeping Unit)"
+                    name="sku"
+                    value={product.sku}
+                    onChange={handleChange}
+                    fullWidth
+                    placeholder="e.g. IPHONE-13-128-BLK"
+                />
+                <TextField
+                    label="Stock Quantity"
+                    name="stockQuantity"
+                    type="number"
+                    value={product.stockQuantity}
+                    onChange={handleChange}
+                    required
+                    fullWidth
+                    inputProps={{ min: 0 }}
+                />
+                <TextField
                     label="Description"
                     name="description"
                     value={product.description}
@@ -108,21 +151,27 @@ const PostProduct = () => {
                     rows={4}
                 />
                 <TextField
-                    label="Price"
+                    label="Price (ZAR)"
                     name="price"
                     type="number"
                     value={product.price}
                     onChange={handleChange}
                     required
                     fullWidth
+                    inputProps={{ min: 0, step: "0.01" }}
                 />
                 {/* File input for image upload */}
-                <input 
-                    type="file" 
-                    accept="image/*" 
-                    onChange={handleFileChange}
-                    style={{ marginBottom: '20px' }} 
-                />
+                <div>
+                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>
+                        Product Image:
+                    </label>
+                    <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleFileChange}
+                        style={{ marginBottom: '10px' }}
+                    />
+                </div>
                 <TextField
                     label="Category"
                     name="category"
@@ -141,12 +190,23 @@ const PostProduct = () => {
                     multiline
                     rows={4}
                 />
+                <FormControlLabel
+                    control={
+                        <Checkbox
+                            name="isActive"
+                            checked={product.isActive}
+                            onChange={handleChange}
+                            color="primary"
+                        />
+                    }
+                    label="Active (Visible in store)"
+                />
                 <Button 
                     type="submit" 
                     variant="contained" 
                     color="primary"
                     disabled={isSubmitting} // Disable button during submission
-                    sx={{ alignSelf: 'center', width: '150px', marginTop: '20px' }}
+                    sx={{ alignSelf: 'center', width: '150px', marginTop: '10px' }}
                 >
                     {isSubmitting ? 'Submitting...' : 'Submit'}
                 </Button>

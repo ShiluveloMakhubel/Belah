@@ -92,3 +92,19 @@
   background-color: #e6f0ff;
   font-weight: bold;
 }
+
+.stock-in {
+  color: #1e7e34;
+  font-weight: 600;
+}
+
+.stock-out {
+  color: #c81e1e;
+  font-weight: 600;
+}
+
+.add-to-cart-btn:disabled {
+  background-color: #cccccc !important;
+  color: #666666 !important;
+  cursor: not-allowed;
+}
