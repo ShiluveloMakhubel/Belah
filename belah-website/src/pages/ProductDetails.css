@@ -8,6 +8,9 @@
     max-width: 300px;
     width: 100%;
     height: auto;
+    object-fit: contain;
+    object-position: center;
+    flex: 0 0 auto;
     margin-right: 20px; /* Add margin for spacing */
     border-radius: 8px;
   }
@@ -19,6 +22,9 @@
   .fade-in {
   animation: fadeIn 0.5s ease-in-out;
 }
+
+.product-detail-price del { margin: 0 8px; }
+.product-detail-price .sale-badge { margin-left: 10px; }
 
 @keyframes fadeIn {
   from {
@@ -107,4 +113,19 @@
   background-color: #cccccc !important;
   color: #666666 !important;
   cursor: not-allowed;
+}
+.variant-select { display: grid; gap: .5rem; margin: 1rem 0; font-weight: 600; }
+.variant-select select { min-height: 44px; padding: .6rem .75rem; border: 1px solid #d7d0c6; border-radius: 8px; background: #fff; font: inherit; }
+
+@media (max-width: 640px) {
+  .product-details {
+    flex-direction: column;
+    padding: 16px;
+  }
+
+  .product-image {
+    max-width: 100%;
+    max-height: 360px;
+    margin: 0 0 20px;
+  }
 }

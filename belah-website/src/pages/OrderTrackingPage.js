@@ -112,9 +112,9 @@ const OrderTrackingPage = () => {
                   <li key={idx}>
                     <div className="item-name">
                       <strong>{item.productName}</strong>
-                      {(item.selectedColor || item.selectedStorage) && (
+                      {(item.selectedVariantName || item.selectedColor || item.selectedStorage) && (
                         <span className="item-variant">
-                          ({[item.selectedColor, item.selectedStorage].filter(Boolean).join(' / ')})
+                          ({[item.selectedVariantName, item.selectedColor, item.selectedStorage].filter(Boolean).join(' / ')})
                         </span>
                       )}
                     </div>
@@ -124,6 +124,7 @@ const OrderTrackingPage = () => {
                   </li>
                 ))}
               </ul>
+              {Number(order.deliveryFee) > 0 && <div className="order-total-row"><span>Delivery fee:</span><strong>R{Number(order.deliveryFee).toFixed(2)}</strong></div>}
               <div className="order-total-row">
                 <span>Total Amount:</span>
                 <strong>R{order.totalAmount.toFixed(2)}</strong>

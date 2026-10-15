@@ -18,7 +18,35 @@ namespace Belah_Backend.Models
         [Column(TypeName = "decimal(18,2)")]
         public decimal Price { get; set; }
 
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal? SalePrice { get; set; }
+
         public string? ImageUrl { get; set; }
+
+        [StringLength(160)]
+        public string? Brand { get; set; }
+
+        [StringLength(120)]
+        public string? ProductType { get; set; }
+
+        public bool IsFeatured { get; set; }
+
+        // Defaults preserve the current purchase behaviour for existing catalogue rows.
+        public bool IsPriceApproved { get; set; } = true;
+
+        public bool IsStockConfirmed { get; set; } = true;
+
+        public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+
+        public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
+
+        public int? CategoryId { get; set; }
+
+        [ForeignKey(nameof(CategoryId))]
+        [System.Text.Json.Serialization.JsonIgnore]
+        public ProductCategory? ProductCategory { get; set; }
+
+        public ICollection<ProductVariant> Variants { get; set; } = new List<ProductVariant>();
 
         [StringLength(100, ErrorMessage = "Category cannot exceed 100 characters.")]
         public string? Category { get; set; }

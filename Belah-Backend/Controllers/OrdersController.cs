@@ -14,6 +14,7 @@ namespace Belah_Backend.Controllers;
 [ApiController]
 public sealed class OrdersController : ControllerBase
 {
+    public const decimal FixedDeliveryFee = 99m;
     private readonly ApplicationDbContext _context;
 
     private static readonly string[] AllowedOrderStatuses =
@@ -34,26 +35,44 @@ public sealed class OrdersController : ControllerBase
             string.IsNullOrWhiteSpace(request.PostalCode))
             return BadRequest(new { message = "All customer and delivery fields are required." });
 
-        if (request.Items.Any(i => i.ProductId <= 0 || i.Quantity <= 0))
+        if (request.Items.Any(i => i.ProductId <= 0 || i.Quantity <= 0 || i.VariantId is <= 0))
             return BadRequest(new { message = "Each order item must have a valid product and positive quantity." });
 
-        var quantities = request.Items.GroupBy(i => i.ProductId)
+        var quantities = request.Items.GroupBy(i => new { i.ProductId, i.VariantId })
             .ToDictionary(g => g.Key, g => g.Sum(i => (long)i.Quantity));
         if (quantities.Values.Any(q => q > int.MaxValue))
             return BadRequest(new { message = "Requested quantity is too large." });
 
         var products = await _context.Products
-            .Where(p => quantities.Keys.Contains(p.Id))
+            .Where(p => quantities.Keys.Select(k => k.ProductId).Contains(p.Id))
             .ToDictionaryAsync(p => p.Id);
-        if (products.Count != quantities.Count)
+        if (products.Count != quantities.Keys.Select(k => k.ProductId).Distinct().Count())
             return BadRequest(new { message = "One or more products do not exist." });
 
-        foreach (var (productId, quantity) in quantities)
+        var variantIds = quantities.Keys.Where(k => k.VariantId.HasValue).Select(k => k.VariantId!.Value).Distinct().ToList();
+        var variants = await _context.ProductVariants.Where(v => variantIds.Contains(v.Id)).ToDictionaryAsync(v => v.Id);
+        if (variants.Count != variantIds.Count) return BadRequest(new { message = "One or more product sizes are unavailable." });
+
+        foreach (var (line, quantity) in quantities)
         {
-            var product = products[productId];
+            var product = products[line.ProductId];
             if (!product.IsActive)
                 return BadRequest(new { message = $"Product '{product.Name}' is unavailable." });
-            if (quantity > product.StockQuantity)
+            if (!product.IsPriceApproved)
+                return Conflict(new { message = $"The price for '{product.Name}' is pending approval and it cannot be purchased yet." });
+            if (!product.IsStockConfirmed)
+                return Conflict(new { message = $"Availability for '{product.Name}' has not been confirmed and it cannot be purchased yet." });
+            if (line.VariantId.HasValue)
+            {
+                var variant = variants[line.VariantId.Value];
+                if (variant.ProductId != product.Id || !variant.IsActive)
+                    return BadRequest(new { message = "The selected product size is unavailable." });
+                if (quantity > variant.StockQuantity)
+                    return Conflict(new { message = $"Insufficient stock for '{product.Name}' ({variant.Name})." });
+            }
+            else if (await _context.ProductVariants.AnyAsync(v => v.ProductId == product.Id && v.IsActive))
+                return BadRequest(new { message = $"Select a size or option for '{product.Name}'." });
+            else if (quantity > product.StockQuantity)
                 return Conflict(new { message = $"Insufficient stock for '{product.Name}'." });
         }
 
@@ -67,24 +86,29 @@ public sealed class OrdersController : ControllerBase
         }
 
         var orderItems = new List<OrderItem>();
-        decimal total = 0;
+        decimal subtotalAmount = 0;
         foreach (var line in request.Items)
         {
             var product = products[line.ProductId];
-            var subtotal = product.Price * line.Quantity;
-            total += subtotal;
+            var variant = line.VariantId.HasValue ? variants[line.VariantId.Value] : null;
+            var unitPrice = variant?.SalePrice ?? variant?.Price ?? product.SalePrice ?? product.Price;
+            var subtotal = unitPrice * line.Quantity;
+            subtotalAmount += subtotal;
             orderItems.Add(new OrderItem
             {
                 ProductId = product.Id,
+                ProductVariantId = variant?.Id,
+                SelectedVariantName = variant?.Name,
                 ProductName = product.Name ?? "Unnamed product",
-                UnitPrice = product.Price,
+                UnitPrice = unitPrice,
                 Quantity = line.Quantity,
                 Subtotal = subtotal,
                 SelectedColor = string.IsNullOrWhiteSpace(line.SelectedColor) ? null : line.SelectedColor.Trim(),
                 SelectedStorage = string.IsNullOrWhiteSpace(line.SelectedStorage) ? null : line.SelectedStorage.Trim()
             });
         }
-        if (total <= 0 || total > 10000000m)
+        var total = subtotalAmount + FixedDeliveryFee;
+        if (subtotalAmount <= 0 || total > 10000000m)
             return BadRequest(new { message = "Order total is outside the supported range." });
 
         string? guestCapability = userId.HasValue ? null : CreateGuestCapability();
@@ -98,6 +122,7 @@ public sealed class OrdersController : ControllerBase
             Status = "Pending",
             PaymentStatus = "Pending",
             TotalAmount = total,
+            DeliveryFee = FixedDeliveryFee,
             CustomerName = request.CustomerName!.Trim(),
             Email = request.Email!.Trim().ToLowerInvariant(),
             Phone = request.Phone.Trim(),
@@ -117,6 +142,8 @@ public sealed class OrdersController : ControllerBase
                 OrderDate = order.OrderDate,
                 Status = order.Status,
                 TotalAmount = order.TotalAmount,
+                DeliveryFee = order.DeliveryFee,
+                SubtotalAmount = subtotalAmount,
                 GuestCapability = guestCapability
             });
     }
@@ -220,13 +247,15 @@ public sealed class OrdersController : ControllerBase
     internal static OrderResponseDto MapToOrderResponseDto(Order order) => new()
     {
         OrderId = order.Id, OrderNumber = order.OrderNumber, OrderDate = order.OrderDate,
-        Status = order.Status, PaymentStatus = order.PaymentStatus, TotalAmount = order.TotalAmount,
+        Status = order.Status, PaymentStatus = order.PaymentStatus, TotalAmount = order.TotalAmount, DeliveryFee = order.DeliveryFee,
+        SubtotalAmount = order.OrderItems.Sum(oi => oi.Subtotal),
         PaymentReference = order.PaymentReference,
         CustomerName = order.CustomerName, Email = order.Email, Phone = order.Phone,
         Address = order.Address, City = order.City, Province = order.Province, PostalCode = order.PostalCode,
         Items = order.OrderItems.Select(oi => new OrderItemResponseDto
         {
             Id = oi.Id, ProductId = oi.ProductId, ProductName = oi.ProductName,
+            ProductVariantId = oi.ProductVariantId, SelectedVariantName = oi.SelectedVariantName,
             Quantity = oi.Quantity, UnitPrice = oi.UnitPrice, Subtotal = oi.Subtotal,
             SelectedColor = oi.SelectedColor, SelectedStorage = oi.SelectedStorage
         }).ToList()
@@ -235,10 +264,10 @@ public sealed class OrdersController : ControllerBase
     private static PublicOrderTrackingDto MapToPublicOrderTrackingDto(Order order) => new()
     {
         OrderNumber = order.OrderNumber, OrderDate = order.OrderDate, Status = order.Status,
-        PaymentStatus = order.PaymentStatus, TotalAmount = order.TotalAmount,
+        PaymentStatus = order.PaymentStatus, TotalAmount = order.TotalAmount, DeliveryFee = order.DeliveryFee,
         Items = order.OrderItems.Select(oi => new PublicOrderItemTrackingDto
         {
-            ProductName = oi.ProductName, Quantity = oi.Quantity, UnitPrice = oi.UnitPrice,
+            ProductName = oi.ProductName, SelectedVariantName = oi.SelectedVariantName, Quantity = oi.Quantity, UnitPrice = oi.UnitPrice,
             Subtotal = oi.Subtotal, SelectedColor = oi.SelectedColor, SelectedStorage = oi.SelectedStorage
         }).ToList()
     };

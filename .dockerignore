@@ -1,0 +1,12 @@
+.git
+.gitignore
+**/bin/
+**/obj/
+**/node_modules/
+**/build/
+**/.env
+**/.env.*
+**/secrets.json
+**/appsettings.*.local.json
+*.user
+*.suo

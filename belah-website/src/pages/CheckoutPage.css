@@ -53,6 +53,9 @@
   color: #111;
 }
 
+.cart-summary > p { display: flex; justify-content: space-between; gap: 12px; }
+.cart-summary .delivery-fee-note { display: block; color: #626262; font-size: .88rem; text-align: right; }
+
 /* Delivery Details Form */
 .delivery-details {
   margin-bottom: 30px;
@@ -63,15 +66,38 @@
   color: #333;
 }
 
+.checkout-field {
+  margin-bottom: 16px;
+}
+
+.checkout-field label {
+  display: block;
+  margin-bottom: 6px;
+  color: #263238;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
 .delivery-details input {
   display: block;
   width: 100%;
+  box-sizing: border-box;
   padding: 12px;
-  margin-bottom: 15px;
+  margin-bottom: 0;
   border: 1px solid #ddd;
   border-radius: 6px;
   font-size: 1rem;
   transition: border-color 0.2s;
+}
+
+.delivery-details input[aria-invalid="true"] {
+  border-color: #b42318;
+}
+
+.checkout-field-error {
+  margin: 6px 0 0;
+  color: #b42318;
+  font-size: 0.875rem;
 }
 
 .delivery-details input:focus {

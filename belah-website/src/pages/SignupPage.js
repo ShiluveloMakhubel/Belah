@@ -71,7 +71,7 @@ const SignupPage = () => {
     <div className="signup-container">
       <div className="signup-box">
         <h2 className="signup-title">Create Account</h2>
-        <p className="signup-subtitle">Join Belah Hair for luxury hair and beauty products.</p>
+        <p className="signup-subtitle">Join Belah to discover fragrances, accessories, beauty, and more.</p>
 
         {error && <div className="signup-error-banner" style={{ color: '#dc2626', background: '#fee2e2', padding: '10px', borderRadius: '6px', marginBottom: '16px' }}>{error}</div>}
 

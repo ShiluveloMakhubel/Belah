@@ -45,6 +45,8 @@ namespace Belah_Backend.DTOs
         [Range(1, int.MaxValue, ErrorMessage = "A valid Product ID is required.")]
         public int ProductId { get; set; }
 
+        public int? VariantId { get; set; }
+
         [Range(1, int.MaxValue, ErrorMessage = "Quantity must be at least 1.")]
         public int Quantity { get; set; }
 
@@ -63,6 +65,8 @@ namespace Belah_Backend.DTOs
         public string Status { get; set; } = string.Empty;
         public string PaymentStatus { get; set; } = string.Empty;
         public decimal TotalAmount { get; set; }
+        public decimal DeliveryFee { get; set; }
+        public decimal SubtotalAmount { get; set; }
         public string? PaymentReference { get; set; }
         public string CustomerName { get; set; } = string.Empty;
         public string Email { get; set; } = string.Empty;
@@ -80,6 +84,8 @@ namespace Belah_Backend.DTOs
         public DateTime OrderDate { get; set; }
         public string Status { get; set; } = string.Empty;
         public decimal TotalAmount { get; set; }
+        public decimal DeliveryFee { get; set; }
+        public decimal SubtotalAmount { get; set; }
         public string? GuestCapability { get; set; }
     }
 
@@ -87,7 +93,9 @@ namespace Belah_Backend.DTOs
     {
         public int Id { get; set; }
         public int? ProductId { get; set; }
+        public int? ProductVariantId { get; set; }
         public string ProductName { get; set; } = string.Empty;
+        public string? SelectedVariantName { get; set; }
         public int Quantity { get; set; }
         public decimal UnitPrice { get; set; }
         public decimal Subtotal { get; set; }
@@ -116,12 +124,14 @@ namespace Belah_Backend.DTOs
         public string Status { get; set; } = string.Empty;
         public string PaymentStatus { get; set; } = string.Empty;
         public decimal TotalAmount { get; set; }
+        public decimal DeliveryFee { get; set; }
         public List<PublicOrderItemTrackingDto> Items { get; set; } = new();
     }
 
     public class PublicOrderItemTrackingDto
     {
         public string ProductName { get; set; } = string.Empty;
+        public string? SelectedVariantName { get; set; }
         public int Quantity { get; set; }
         public decimal UnitPrice { get; set; }
         public decimal Subtotal { get; set; }

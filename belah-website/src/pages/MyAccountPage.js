@@ -50,7 +50,8 @@ const MyAccountPage = () => {
       {orders.map((order) => <article className="account-order" key={order.orderId}>
         <div className="account-order-heading"><div><h3>{order.orderNumber}</h3><time dateTime={order.orderDate}>{new Date(order.orderDate).toLocaleString()}</time></div><strong>R{Number(order.totalAmount).toFixed(2)}</strong></div>
         <p>Payment: <strong>{order.paymentStatus}</strong> · Fulfilment: <strong>{order.status}</strong></p>
-        <ul>{order.items?.map((item) => <li key={item.id}>{item.quantity} × {item.productName} — R{Number(item.subtotal).toFixed(2)}{(item.selectedColor || item.selectedStorage) ? ` (${[item.selectedColor, item.selectedStorage].filter(Boolean).join(' / ')})` : ''}</li>)}</ul>
+        {Number(order.deliveryFee) > 0 && <p>Delivery fee: R{Number(order.deliveryFee).toFixed(2)}</p>}
+        <ul>{order.items?.map((item) => <li key={item.id}>{item.quantity} × {item.productName} — R{Number(item.subtotal).toFixed(2)}{(item.selectedVariantName || item.selectedColor || item.selectedStorage) ? ` (${[item.selectedVariantName, item.selectedColor, item.selectedStorage].filter(Boolean).join(' / ')})` : ''}</li>)}</ul>
         <Link to={`/track-order?orderNumber=${encodeURIComponent(order.orderNumber)}`}>Track this order</Link>
       </article>)}
     </section>

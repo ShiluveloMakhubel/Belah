@@ -37,6 +37,9 @@ namespace Belah_Backend.Models
         [Range(0, 10000000)]
         public decimal TotalAmount { get; set; }
 
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal DeliveryFee { get; set; }
+
         [Required(ErrorMessage = "Customer name is required.")]
         [StringLength(200)]
         public string CustomerName { get; set; } = string.Empty;

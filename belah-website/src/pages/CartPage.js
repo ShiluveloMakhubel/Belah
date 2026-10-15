@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import API_BASE_URL from '../config/api';
+import API_BASE_URL, { resolveProductImage } from '../config/api';
+import { DELIVERY_FEE_ZAR } from '../config/commerce';
 import './CartPage.css';
 
 const CartPage = () => {
   const [cartItems, setCartItems] = useState([]);
   const [stockMap, setStockMap] = useState({});
   const [loadingStock, setLoadingStock] = useState(false);
+  const [stockLoaded, setStockLoaded] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -26,9 +28,21 @@ const CartPage = () => {
             stockQuantity: p.stockQuantity ?? 0,
             isActive: p.isActive !== false,
             name: p.name,
+            variants: Object.fromEntries((p.variants || []).map((variant) => [variant.id, variant])),
           };
         });
         setStockMap(map);
+        setStockLoaded(true);
+        const updatedCart = storedCart.map((item) => {
+          const product = products.find((p) => p.id === item.id);
+          if (!product) return item;
+          const variant = item.variantId ? (product.variants || []).find((v) => v.id === item.variantId) : null;
+          const regularPrice = Number(variant?.price ?? product.price ?? item.price);
+          const salePrice = product.isPriceApproved === false ? null : variant ? variant.salePrice : product.salePrice;
+          return { ...item, regularPrice, price: salePrice != null ? Number(salePrice) : regularPrice };
+        });
+        setCartItems(updatedCart);
+        localStorage.setItem('cart', JSON.stringify(updatedCart));
       } catch (err) {
         console.error('Failed to fetch latest stock info:', err);
       } finally {
@@ -45,40 +59,37 @@ const CartPage = () => {
   };
 
   // Helper to get total quantity of a product in the cart
-  const getTotalQuantityInCart = (productId, excludeItem = null) => {
+  const sameCartOption = (left, right) => left.id === right.id && (left.variantId || null) === (right.variantId || null);
+
+  const getTotalQuantityInCart = (productId, variantId = null, excludeItem = null) => {
     return cartItems
       .filter(
         (item) =>
-          item.id === productId &&
+          item.id === productId && (item.variantId || null) === (variantId || null) &&
           !(
             excludeItem &&
-            item.id === excludeItem.id &&
-            item.selectedColor === excludeItem.selectedColor &&
-            item.selectedStorage === excludeItem.selectedStorage
+            sameCartOption(item, excludeItem)
           )
       )
       .reduce((sum, item) => sum + (item.quantity || 0), 0);
   };
 
-  const getAvailableStock = (productId, fallbackQuantity = 0) => {
-    if (stockMap[productId] !== undefined) {
-      return stockMap[productId].stockQuantity;
-    }
-    return fallbackQuantity;
+  const getAvailableStock = (item, fallbackQuantity = 0) => {
+    if (stockMap[item.id] === undefined) return stockLoaded ? 0 : fallbackQuantity;
+    if (!stockMap[item.id].isActive) return 0;
+    if (item.variantId) return stockMap[item.id].variants?.[item.variantId]?.stockQuantity ?? 0;
+    return stockMap[item.id].stockQuantity;
   };
 
-  const handleIncrease = (id, color, storage) => {
+  const handleIncrease = (target) => {
     const targetItem = cartItems.find(
-      (item) =>
-        item.id === id &&
-        item.selectedColor === color &&
-        item.selectedStorage === storage
+      (item) => sameCartOption(item, target)
     );
 
     if (!targetItem) return;
 
-    const availableStock = getAvailableStock(id, targetItem.stockQuantity ?? 999);
-    const totalInCartForProduct = getTotalQuantityInCart(id);
+    const availableStock = getAvailableStock(targetItem, targetItem.stockQuantity ?? 999);
+    const totalInCartForProduct = getTotalQuantityInCart(targetItem.id, targetItem.variantId);
 
     if (totalInCartForProduct + 1 > availableStock) {
       alert(
@@ -88,33 +99,27 @@ const CartPage = () => {
     }
 
     const updated = cartItems.map((item) =>
-      item.id === id &&
-      item.selectedColor === color &&
-      item.selectedStorage === storage
+      sameCartOption(item, targetItem)
         ? { ...item, quantity: item.quantity + 1 }
         : item
     );
     updateCart(updated);
   };
 
-  const handleDecrease = (id, color, storage) => {
+  const handleDecrease = (target) => {
     const updated = cartItems.map((item) =>
-      item.id === id &&
-      item.selectedColor === color &&
-      item.selectedStorage === storage
+      sameCartOption(item, target)
         ? { ...item, quantity: Math.max(item.quantity - 1, 1) }
         : item
     );
     updateCart(updated);
   };
 
-  const handleRemove = (id, color, storage) => {
+  const handleRemove = (target) => {
     const updated = cartItems.filter(
       (item) =>
         !(
-          item.id === id &&
-          item.selectedColor === color &&
-          item.selectedStorage === storage
+          sameCartOption(item, target)
         )
     );
     updateCart(updated);
@@ -122,8 +127,8 @@ const CartPage = () => {
 
   // Check if cart has any stock violations
   const hasStockViolations = cartItems.some((item) => {
-    const availableStock = getAvailableStock(item.id, item.stockQuantity ?? 0);
-    const totalInCart = getTotalQuantityInCart(item.id);
+    const availableStock = getAvailableStock(item, item.stockQuantity ?? 0);
+    const totalInCart = getTotalQuantityInCart(item.id, item.variantId);
     return availableStock <= 0 || totalInCart > availableStock;
   });
 
@@ -135,8 +140,8 @@ const CartPage = () => {
 
     // Validate quantities against stock
     for (const item of cartItems) {
-      const availableStock = getAvailableStock(item.id, item.stockQuantity ?? 0);
-      const totalInCart = getTotalQuantityInCart(item.id);
+      const availableStock = getAvailableStock(item, item.stockQuantity ?? 0);
+      const totalInCart = getTotalQuantityInCart(item.id, item.variantId);
 
       if (availableStock <= 0) {
         alert(
@@ -160,6 +165,7 @@ const CartPage = () => {
     (sum, item) => sum + item.price * item.quantity,
     0
   );
+  const orderTotal = totalPrice + DELIVERY_FEE_ZAR;
 
   return (
     <div className="cart-container fade-in">
@@ -177,17 +183,17 @@ const CartPage = () => {
         <>
           <ul className="cart-list">
             {cartItems.map((item) => {
-              const availableStock = getAvailableStock(item.id, item.stockQuantity ?? 0);
-              const totalInCart = getTotalQuantityInCart(item.id);
+              const availableStock = getAvailableStock(item, item.stockQuantity ?? 0);
+              const totalInCart = getTotalQuantityInCart(item.id, item.variantId);
               const isOutOfStock = availableStock <= 0;
               const exceedsStock = totalInCart > availableStock;
 
               return (
                 <li
-                  key={`${item.id}-${item.selectedColor}-${item.selectedStorage}`}
+                  key={`${item.id}-${item.variantId || 'base'}`}
                   className="cart-item"
                 >
-                  <img src={item.imageUrl} alt={item.name} className="cart-image" />
+                  <img src={resolveProductImage(item.imageUrl)} alt={item.name} className="cart-image" onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = '/images/product-placeholder.svg'; }} />
                   <div className="cart-details">
                     <h3>{item.name}</h3>
 
@@ -205,13 +211,16 @@ const CartPage = () => {
                     )}
 
                     {/* Storage */}
-                    {item.selectedStorage && (
+                    {item.selectedVariantName && (
                       <p>
-                        <strong>Storage:</strong> {item.selectedStorage}
+                        <strong>Size / option:</strong> {item.selectedVariantName}
                       </p>
                     )}
 
-                    <p>ZAR {item.price} x {item.quantity}</p>
+                    <p className="cart-price-line">
+                      {item.regularPrice > item.price && <del aria-label={`Regular price ZAR ${Number(item.regularPrice).toFixed(2)}`}>ZAR {Number(item.regularPrice).toFixed(2)}</del>}
+                      <strong>ZAR {Number(item.price).toFixed(2)}</strong> × {item.quantity}
+                    </p>
 
                     {/* Stock status indicator */}
                     {isOutOfStock ? (
@@ -230,7 +239,7 @@ const CartPage = () => {
                       <button
                         className="qty-btn"
                         onClick={() =>
-                          handleDecrease(item.id, item.selectedColor, item.selectedStorage)
+                          handleDecrease(item)
                         }
                       >
                         −
@@ -239,7 +248,7 @@ const CartPage = () => {
                       <button
                         className="qty-btn"
                         onClick={() =>
-                          handleIncrease(item.id, item.selectedColor, item.selectedStorage)
+                          handleIncrease(item)
                         }
                         disabled={totalInCart >= availableStock}
                         title={
@@ -252,7 +261,7 @@ const CartPage = () => {
                       </button>
                       <button
                         onClick={() =>
-                          handleRemove(item.id, item.selectedColor, item.selectedStorage)
+                          handleRemove(item)
                         }
                         className="remove-btn"
                       >
@@ -266,7 +275,10 @@ const CartPage = () => {
           </ul>
 
           <div className="cart-summary">
-            <h3>Total: ZAR {totalPrice.toFixed(2)}</h3>
+            <p>Items subtotal: <strong>ZAR {totalPrice.toFixed(2)}</strong></p>
+            <p>Fixed delivery fee: <strong>ZAR {DELIVERY_FEE_ZAR.toFixed(2)}</strong></p>
+            <h3>Total: ZAR {orderTotal.toFixed(2)}</h3>
+            <p className="delivery-fee-note">Delivery fee is fixed for every order and is included before payment.</p>
             <button
               className="checkout-btn"
               onClick={handleProceedToCheckout}

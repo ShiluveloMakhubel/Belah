@@ -42,7 +42,7 @@ const Header = () => {
         <div className="logo">
           <Link to="/" onClick={() => setMenuOpen(false)}>
             <span className="logo-wordmark">BELAH</span>
-            <span className="logo-tagline">HAIR · BEAUTY</span>
+            <span className="logo-tagline">SCENTS · FINDS</span>
           </Link>
         </div>
 
@@ -53,7 +53,6 @@ const Header = () => {
             <li><NavLink to="/track-order" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={() => setMenuOpen(false)}>Track Order</NavLink></li>
             {user && !isAdmin && <li><NavLink to="/my-account" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={() => setMenuOpen(false)}>My Account</NavLink></li>}
             <li><NavLink to="/about" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={() => setMenuOpen(false)}>About</NavLink></li>
-            <li><NavLink to="/contact" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={() => setMenuOpen(false)}>Contact</NavLink></li>
             {isAdmin && (
               <li>
                 <NavLink to="/admin" className={({ isActive }) => `nav-link admin-nav-link${isActive ? ' active' : ''}`} onClick={() => setMenuOpen(false)}>Admin</NavLink>

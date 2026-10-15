@@ -1,23 +1,29 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import './Categories.css';
-
-import { Link } from 'react-router-dom'; // for navigation
-
-const categoriesData = [
-  { id: 1, name: 'Hair Weave', image: '/images/hair2.png', slug: 'hair-weave' },
-  { id: 2, name: 'Smartphone', image: '/images/iphone11.png', slug: 'smartphone' },
-  { id: 3, name: 'Shoes', image: '/images/sandals.jpg', slug: 'shoes' },
-];
+import { Link } from 'react-router-dom';
+import API_BASE_URL from '../config/api';
 
 const Categories = () => {
+  const [categories, setCategories] = useState([]);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/categories`)
+      .then((response) => {
+        if (!response.ok) throw new Error('Could not load categories.');
+        return response.json();
+      })
+      .then((data) => setCategories(data.filter((category) => category.isActive)))
+      .catch(() => setError('Categories are temporarily unavailable.'));
+  }, []);
+
   return (
     <div className="categories-container">
-      
       <h2 className="categories-title">Shop by Category</h2>
+      {error && <p role="alert">{error}</p>}
+      {!error && categories.length === 0 && <p>Categories will appear here when available.</p>}
       <div className="category-grid">
-        {categoriesData.map((category) => (
-          <Link to={`/products/${category.slug}`} key={category.id} className="category-card">
-            <img src={category.image} alt={category.name} className="category-image" />
+        {categories.map((category) => (
+          <Link to={`/products?category=${encodeURIComponent(category.name)}`} key={category.id} className="category-card">
             <div className="category-info">
               <h3>{category.name}</h3>
             </div>

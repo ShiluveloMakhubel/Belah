@@ -52,18 +52,31 @@ public sealed class PaymentsController : ControllerBase
         if (order.TotalAmount <= 0 || order.Email.Length == 0) return BadRequest(new { message = "Order payment details are invalid." });
 
         if (order.OrderItems.Count == 0 || order.OrderItems.Any(i => !i.ProductId.HasValue || i.Quantity <= 0 || i.UnitPrice < 0 || i.Subtotal != i.UnitPrice * i.Quantity) ||
-            order.OrderItems.Sum(i => i.Subtotal) != order.TotalAmount)
+            order.OrderItems.Sum(i => i.Subtotal) + order.DeliveryFee != order.TotalAmount)
             return Conflict(new { message = "Stored order lines are invalid; create a new order." });
         var lineQuantities = order.OrderItems.GroupBy(i => i.ProductId!.Value)
             .ToDictionary(g => g.Key, g => g.Sum(i => (long)i.Quantity));
         var products = await _context.Products.Where(p => lineQuantities.Keys.Contains(p.Id)).ToDictionaryAsync(p => p.Id);
         foreach (var (productId, quantity) in lineQuantities)
         {
-            if (!products.TryGetValue(productId, out var product) || !product.IsActive)
+            if (!products.TryGetValue(productId, out var product) || !product.IsActive ||
+                !product.IsPriceApproved || !product.IsStockConfirmed)
                 return Conflict(new { message = "An order product is no longer available." });
             if (quantity > product.StockQuantity)
                 return Conflict(new { message = "Current inventory is insufficient; create a new order later." });
         }
+        var orderedVariantIds = order.OrderItems.Where(i => i.ProductVariantId.HasValue).Select(i => i.ProductVariantId!.Value).Distinct().ToList();
+        var currentVariants = await _context.ProductVariants.Where(v => orderedVariantIds.Contains(v.Id)).ToDictionaryAsync(v => v.Id);
+        foreach (var group in order.OrderItems.Where(i => i.ProductVariantId.HasValue).GroupBy(i => i.ProductVariantId!.Value))
+        {
+            if (!currentVariants.TryGetValue(group.Key, out var variant) || !variant.IsActive ||
+                variant.ProductId != group.First().ProductId || group.Sum(i => (long)i.Quantity) > variant.StockQuantity)
+                return Conflict(new { message = "The selected product size is no longer available." });
+        }
+        var productIdsWithVariants = await _context.ProductVariants.Where(v => v.IsActive && lineQuantities.Keys.Contains(v.ProductId))
+            .Select(v => v.ProductId).Distinct().ToListAsync();
+        if (order.OrderItems.Any(i => !i.ProductVariantId.HasValue && productIdsWithVariants.Contains(i.ProductId!.Value)))
+            return Conflict(new { message = "A product size must be selected before payment." });
 
         // Reference is persisted before the provider call, so every callback resolves to one order.
         if (string.IsNullOrWhiteSpace(order.PaymentReference))
@@ -245,13 +258,38 @@ public sealed class PaymentsController : ControllerBase
 
             var invalidProduct = order.OrderItems.Any(i => !i.ProductId.HasValue || i.Quantity <= 0);
             var inventoryOk = !invalidProduct;
-            var quantities = order.OrderItems.Where(i => i.ProductId.HasValue)
+            var productQuantities = order.OrderItems.Where(i => i.ProductId.HasValue)
                 .GroupBy(i => i.ProductId!.Value).OrderBy(g => g.Key)
                 .Select(g => new { ProductId = g.Key, Quantity = g.Sum(i => (long)i.Quantity) }).ToList();
-            foreach (var item in quantities)
+            var variantQuantities = order.OrderItems.Where(i => i.ProductVariantId.HasValue)
+                .GroupBy(i => i.ProductVariantId!.Value).OrderBy(g => g.Key)
+                .Select(g => new { VariantId = g.Key, ProductId = g.First().ProductId!.Value, Quantity = g.Sum(i => (long)i.Quantity) }).ToList();
+            foreach (var item in variantQuantities)
             {
                 if (item.Quantity > int.MaxValue) { inventoryOk = false; break; }
-                var affected = await _context.Products.Where(p => p.Id == item.ProductId && p.IsActive && p.StockQuantity >= item.Quantity)
+                var product = await _context.Products.AsNoTracking().FirstOrDefaultAsync(p => p.Id == item.ProductId &&
+                    p.IsActive && p.IsPriceApproved && p.IsStockConfirmed);
+                var affected = product == null ? 0 : await _context.ProductVariants
+                    .Where(v => v.Id == item.VariantId && v.ProductId == item.ProductId && v.IsActive &&
+                        v.StockQuantity >= item.Quantity && _context.Products.Any(p => p.Id == v.ProductId &&
+                            p.IsActive && p.IsPriceApproved && p.IsStockConfirmed))
+                    .ExecuteUpdateAsync(s => s.SetProperty(v => v.StockQuantity, v => v.StockQuantity - (int)item.Quantity));
+                if (affected != 1) { inventoryOk = false; break; }
+            }
+            foreach (var item in productQuantities.Where(q => !order.OrderItems.Any(i => i.ProductId == q.ProductId && i.ProductVariantId.HasValue)))
+            {
+                if (item.Quantity > int.MaxValue) { inventoryOk = false; break; }
+                var affected = await _context.Products.Where(p => p.Id == item.ProductId && p.IsActive &&
+                        p.IsPriceApproved && p.IsStockConfirmed &&
+                        !_context.ProductVariants.Any(v => v.ProductId == p.Id && v.IsActive) && p.StockQuantity >= item.Quantity)
+                    .ExecuteUpdateAsync(s => s.SetProperty(p => p.StockQuantity, p => p.StockQuantity - (int)item.Quantity));
+                if (affected != 1) { inventoryOk = false; break; }
+            }
+            foreach (var item in productQuantities.Where(q => order.OrderItems.Any(i => i.ProductId == q.ProductId && i.ProductVariantId.HasValue)))
+            {
+                if (item.Quantity > int.MaxValue) { inventoryOk = false; break; }
+                var affected = await _context.Products.Where(p => p.Id == item.ProductId && p.IsActive &&
+                        p.IsPriceApproved && p.IsStockConfirmed && p.StockQuantity >= item.Quantity)
                     .ExecuteUpdateAsync(s => s.SetProperty(p => p.StockQuantity, p => p.StockQuantity - (int)item.Quantity));
                 if (affected != 1) { inventoryOk = false; break; }
             }
@@ -273,6 +311,21 @@ public sealed class PaymentsController : ControllerBase
                     .SetProperty(o => o.Status, "Processing")
                     .SetProperty(o => o.PaystackTransactionId, (long?)provider.Id));
             if (paid != 1) throw new DbUpdateConcurrencyException("Order payment state changed during verification.");
+
+            // The unique outbox key and the Paid transition commit together. Existing paid orders are
+            // intentionally untouched; only this newly confirmed transition enqueues a message.
+            _context.EmailNotifications.Add(new EmailNotification
+            {
+                OrderId = order.Id,
+                IdempotencyKey = $"order-confirmation:{order.Id}",
+                RecipientEmail = order.Email,
+                Currency = Currency,
+                Status = "Pending",
+                Attempts = 0,
+                CreatedAtUtc = DateTime.UtcNow,
+                NextAttemptAtUtc = DateTime.UtcNow
+            });
+            await _context.SaveChangesAsync();
             await transaction.CommitAsync();
             order.PaymentStatus = "Paid";
             order.Status = "Processing";

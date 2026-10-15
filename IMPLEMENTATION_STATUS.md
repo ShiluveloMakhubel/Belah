@@ -121,3 +121,86 @@ curl -sS -o /dev/null -w 'POST /api/orders HTTP %{http_code}\n' \
 ```
 
 Expected result is HTTP 201. This creates one pending test order, so run it only when that local data write is desired. Do not call `/api/payments/initialize` for this schema check. The checkout now presents readable, accessible errors for JSON and non-JSON server failures; a failed order POST does not advance to the payment step.
+
+## Fragrance and flexible catalogue adaptation — 2026-10-13
+
+The customer-facing copy is now category-neutral and initially highlights fragrances while remaining suitable for accessories, beauty, and other merchandise. Storefront search now includes brand; category and brand filters and ZAR price ranges operate on API products. Product cards and detail pages show brands and variant-aware starting prices/stock. Customers select an available size/option before adding a variant to the cart; the selected variant ID and server-priced amount flow through order creation. Cart and checkout display the selected option.
+
+The EF model and APIs now support product brand/type, featured status, UTC create/update timestamps, editable persistent categories, and product variants with distinct name, SKU, price, stock, active state, and optional image. Admin product management can create/edit variants and manage category names/visibility. Category and product mutations remain Admin-only. Existing single-price/stock products and order lines remain supported. Payment verification still validates inventory server-side; a successful variant purchase conditionally decrements that variant and the product's aggregate stock in the existing transaction, so duplicate verification cannot deduct twice. Order lines keep their selected variant name as a historical snapshot.
+
+New migration: `20261013124621_AddFlexibleCatalogueAndProductVariants`. It adds nullable product brand/type/category ID, featured flag, UTC timestamps, nullable variant ID and selected-variant snapshot on order lines, and `ProductCategories`/`ProductVariants` tables. It adds unique category name/slug, filtered unique non-null variant SKU, unique product/variant name, product/category and order-line/variant indexes, a category FK with `SET NULL`, product-to-variant cascade, and a restricted order-line-to-variant FK. Existing category text and order lines are retained; the new category ID and variant ID are nullable, and timestamp defaults populate existing products with UTC time. The migration was generated only and was not applied.
+
+The SQL Server instance was not reachable during the EF tooling connection check, so this turn did not inspect live migration history or live table data. No schema or database rows were changed. Before applying the new migration, independently verify the earlier reviewed migration sequence and database state, take and verify a restorable backup, then review this generated migration. Applying it creates new tables and nullable columns; it does not drop or overwrite Products, Users, Orders, payment rows, or existing order lines.
+
+The ten supplied fragrance entries are prepared for intake in [`docs/Fragrance-Catalogue-Intake.md`](docs/Fragrance-Catalogue-Intake.md). They were not inserted into SQL Server or activated: the request supplies no Belah prices or physical stock counts, and several supplied names do not identify a specific fragrance variant. No image binaries were downloaded. The storefront placeholder remains in use until Belah has authorized product imagery. Confirm the bottle/box identity, local sale price, stock, size, and image rights before creating and publishing each entry.
+
+The development-only hair mock seeder remains a test fixture and was not run or changed. It still creates its explicit sample prices/stock in Development only; do not use those sample listings as Belah fragrance inventory.
+
+### Fragrance intake implementation — 2026-10-13
+
+- Added a Development-only `--seed-fragrance-catalogue` command for the ten exact intake entries. It creates stable `BELAH-FRAGRANCE-INTAKE-*` SKUs, reuses/creates the Fragrances category, uses the local placeholder, and skips existing SKUs or matching product names without changing them. It never deletes products and does not touch users, roles, orders, or payment rows.
+- Intake listings are public (`IsActive = true`) but use zero stock with `IsStockConfirmed = false`; purchase creation and payment verification reject them until an Admin confirms physical stock. `IsPriceApproved = false` similarly blocks checkout. Numeric retailer references are clearly labelled indicative; unresolved entries show price pending approval. Admin product edit now exposes approval/stock confirmation controls.
+- Added migration `20261013135332_AddCatalogueApprovalState`, which adds the two non-null `Products` flags with default `true` to preserve existing inventory behavior. It follows `20261013124621_AddFlexibleCatalogueAndProductVariants`. Neither migration was applied in this task because the SQL Server container and live database were inaccessible and a fresh verified backup could not be made.
+- Image rights were not established for any found product photos. All intake products use existing `/images/product-placeholder.svg`; the image/source and indicative-price registers are in [`docs/product-image-sources.md`](docs/product-image-sources.md) and [`docs/fragrance-catalogue-pricing-sources.md`](docs/fragrance-catalogue-pricing-sources.md). No fragrance photos were copied or downloaded.
+- The local API at `localhost:5037` was not running during this task. Docker access to `/var/run/docker.sock` was denied. Therefore the seeder was not run, database contents and migration history were not verified, and no claim is made that the live catalogue has changed.
+- Verification: backend tests passed (73); backend build passed with 0 warnings and 0 errors; frontend tests passed (6) with existing React/Jest deprecation warnings; frontend production build passed with existing Browserslist/Babel maintenance notices. EF reports no pending model changes relative to the added migration snapshot.
+
+After reviewing/backup and applying the required migrations in order, use the Development shell already configured for the correct local SQL Server connection:
+
+```sh
+ASPNETCORE_ENVIRONMENT=Development dotnet run --project Belah-Backend/Belah-Backend.csproj -- --seed-fragrance-catalogue
+```
+
+Expected seeder output on a fresh catalogue is `10 added, 0 existing products skipped`. This command writes only catalogue/category rows, so first verify that the configured connection targets local `BelahDB` and that the migration backup is verified.
+
+### Purchase confirmation email outbox — 2026-10-13
+
+- Added SMTP-backed purchase confirmation delivery with plain-text and responsive HTML versions, a database outbox, five bounded delivery attempts, safe error-type logging, leases, and Admin-only notification inspection/retry. Both verification and signed webhook processing enqueue through the same newly-paid transition. Unique indexes enforce one confirmation per order and idempotency key; existing paid orders are not backfilled.
+- Email content uses saved order-item names, options, quantities and prices. The existing public order-number tracking route is linked without exposing guest capabilities or payment references. Missing SMTP settings leave notifications Pending and do not block checkout. See [`docs/Transactional-Email.md`](docs/Transactional-Email.md) for setup and manual sandbox procedure.
+- Added migration `20261013150747_AddPurchaseConfirmationEmailOutbox`. It is additive and was generated, not applied. SQL Server was unreachable during EF connection checks, so the live database target/schema/history and backup could not be verified. Before applying, verify the intended connection, review the complete pending migration sequence, and create and verify a fresh backup. No database rows or schema were changed and no email or live payment was sent.
+- Verification: backend tests passed (81); frontend tests passed (8). Frontend production build passed. `git diff --check` passed. Frontend test output includes existing React testing/router warnings; build output includes existing Node/Browserslist maintenance warnings.
+
+## Fixed delivery fee and product sale pricing — 2026-10-13
+
+- New orders include a fixed R99 delivery fee. The cart and checkout show the item subtotal, delivery fee, and payable total before payment. The API calculates the fee and product prices, persists the delivery fee on the order, and uses the resulting total for Paystack initialization and verification; browser-supplied totals are not trusted.
+- Admin product editing supports optional sale prices for products and individual variants. Sale prices must be positive, lower than the regular price, and use no more than two decimal places. The storefront displays the regular price struck through beside the sale price and savings; order lines snapshot the sale price actually charged.
+- Generated migration `20261013181604_AddFixedDeliveryFeeAndProductSalePricing` adds nullable sale-price columns and a non-null order delivery-fee column with a zero default for existing orders. It is not applied. The existing database history/schema was not inspected in this task, so do not assume this or earlier generated migrations are pending or applied. Verify live migration history, back up the target, and review the full sequence before applying anything.
+- No database data or schema was changed. Existing orders retain their prior total and receive a stored delivery fee of zero from the migration default; newly-created orders use R99.
+
+### Local SQL password handling — 2026-10-13
+
+- Repeated local startup logs showed SQL Server error 18456 for `sa`. The container login succeeded through interactive `sqlcmd`, and its published port was confirmed as 1433, but the .NET connection still rejected the password. Added optional `BELAH_SQL_PASSWORD` handling in `Program.cs`; it uses `SqlConnectionStringBuilder` to set the password as a raw value rather than manually escaping it in a shell connection string. See the zsh command in [README.md](README.md).
+- Backend build passed with 0 warnings and 0 errors; `git diff --check` passed. This environment cannot access the user's Docker socket or SQL process, so the new startup path has not yet been verified against the live container. No database or credential was changed.
+
+## Publication readiness review — 2026-10-14
+
+The repository contains a functioning storefront and API implementation, but a production release is not yet verified. This review changed documentation only; it did not change application code, credentials, database records, or schema.
+
+### Implemented in source
+
+- API-backed product catalogue, product details, Admin product/category/variant editing, customer accounts and order history, Admin order management, inventory checks, Paystack server-side verification and signed webhook handling, R99 delivery pricing, optional sale pricing, and transactional purchase-confirmation email outbox.
+- README descriptions were corrected to match the current source for webhooks, variants, SKU indexing, delivery/sale pricing, and email. It lists all 13 repository migrations and distinguishes migration-history evidence from direct schema verification.
+
+### Release blockers to resolve, in order
+
+1. **Database state and migrations:** user-provided read-only queries confirm `dbo.__EFMigrationsHistory` contains all 13 repository migration IDs in `BelahDB`, and the sampled order/catalogue/email columns and tables exist; `IX_Products_Sku` is unique with the expected non-null filter. Other indexes, foreign keys, and complete schema integrity have not been checked. Do not infer schema integrity from migration history, build, or EF snapshot output.
+2. **Hosting and public configuration:** a .NET container build and Cloudflare Pages SPA fallback are now prepared, but no Azure resources or infrastructure provisioning are configured. Choose API and frontend hosting, configure HTTPS/domain/DNS, production CORS, a production `REACT_APP_API_URL`, database network access, secret management, monitoring, and backup/restore ownership.
+3. **Durable image storage:** Admin uploads support a configurable `Uploads:Path` mount and static serving from that path. Production hosting must provide durable storage or replace this with object storage; ephemeral deployment storage risks losing uploaded product images.
+4. **Payment and customer operations:** configure Paystack sandbox callback/webhook on public HTTPS and complete sandbox verification before live credentials. Define the operator process for `RefundRequired` orders; refunds are not automated. Verify SMTP delivery and retries using a controlled test inbox.
+5. **Merchandise readiness:** confirm fragrance identity, licensed product images, final prices, and physical stock before making the intake catalogue purchasable.
+
+The last recorded automated checks are in the sections above; they are source/build checks, not proof of the live database's physical schema, a deployed site, or production checkout. No production deployment or live payment has been performed.
+
+### User-provided live migration-history result — 2026-10-14
+
+The user ran a read-only `SELECT MigrationId FROM dbo.__EFMigrationsHistory ORDER BY MigrationId` against `BelahDB` inside `belah-sqlserver` and provided the output. It contains all 13 IDs listed in README, through `20261013181604_AddFixedDeliveryFeeAndProductSalePricing`. This confirms the database's EF history table records the complete repository migration chain as applied. It does **not** independently prove that every expected column, index, and foreign key is still present or unaltered; inspect those separately before deployment. No migration was run and no data or schema was changed in this session.
+
+The user subsequently ran a read-only SQL Server metadata query against `BelahDB` and provided the result. The checked columns were present with expected nullability: `Orders.DeliveryFee` is non-null; guest hash, payment expiry, Paystack transaction ID, and user ID are nullable; product `CategoryId` is nullable; product approval flags are non-null; product and variant `SalePrice` are nullable. The `ProductCategories`, `ProductVariants`, and `EmailNotifications` tables exist. `IX_Products_Sku` exists, is unique, and has filter `([Sku] IS NOT NULL)`. These outputs verify the queried schema elements, not every table, FK, index, or production configuration. No migration, write query, or database change was performed in this session.
+
+### Low-cost staging preparation — 2026-10-15
+
+- Added a .NET 8 API container definition at `Belah-Backend/Dockerfile`, root `.dockerignore`, and Cloudflare Pages SPA fallback at `belah-website/public/_redirects`. The image listens on port 8080 and does not apply migrations at startup.
+- Made API CORS origins configurable through `Cors:AllowedOrigins` while retaining current local and existing site defaults. Product uploads can now use `Uploads:Path`; files at that location are served under `/uploads` so the frontend's existing API-origin URL resolution continues to work.
+- Added [`docs/Low-Cost-Deployment.md`](docs/Low-Cost-Deployment.md) with Cloudflare Pages build settings, API environment requirements, a staging-only data/payment sequence, and limits. No cloud resource was created, no database was copied, and no payment or email was sent.
+- Backend build passed using `/tmp/belah-dotnet-artifacts` so tracked generated-file deletions were not recreated: 0 errors and 2 NU1900 warnings because this environment could not reach the NuGet vulnerability feed. Frontend production build passed to `/tmp/belah-website-build`; the Cloudflare `_redirects` file is present in the output. CRA reported its existing outdated Browserslist data notice. `git diff --check` passed and all 428 pre-existing staged deletions remain staged.
+- The Docker image itself was not built or deployed. Durable object storage (including R2) is not integrated; use a mounted persistent path or keep uploads disabled for staging, and do not treat ephemeral container storage as production-safe.

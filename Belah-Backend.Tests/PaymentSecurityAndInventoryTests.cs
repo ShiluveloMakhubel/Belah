@@ -115,6 +115,7 @@ public sealed class PaymentSecurityAndInventoryTests : IDisposable
 
         Assert.IsType<UnauthorizedResult>(response);
         Assert.Equal(0, service.VerifyCalls);
+        Assert.Empty(await context.EmailNotifications.ToListAsync());
     }
 
     [Fact]
@@ -148,6 +149,10 @@ public sealed class PaymentSecurityAndInventoryTests : IDisposable
         Assert.Equal(1, service.VerifyCalls);
         Assert.Equal(3, await context.Products.Where(p => p.Id == product.Id).Select(p => p.StockQuantity).SingleAsync());
         Assert.Equal("Paid", (await context.Orders.SingleAsync(o => o.Id == order.Id)).PaymentStatus);
+        var notification = await context.EmailNotifications.SingleAsync();
+        Assert.Equal($"order-confirmation:{order.Id}", notification.IdempotencyKey);
+        Assert.Equal(order.Email, notification.RecipientEmail);
+        Assert.Equal("Pending", notification.Status);
     }
 
     [Fact]
@@ -253,6 +258,7 @@ public sealed class PaymentSecurityAndInventoryTests : IDisposable
         var result = await controller.VerifyPayment(new VerifyPaymentRequest { Reference = order.PaymentReference! });
         Assert.IsType<ConflictObjectResult>(result.Result);
         Assert.Equal(expectedPaymentStatus, (await context.Orders.AsNoTracking().SingleAsync(o => o.Id == order.Id)).PaymentStatus);
+        Assert.Empty(await context.EmailNotifications.ToListAsync());
     }
 
     [Fact]
@@ -266,6 +272,7 @@ public sealed class PaymentSecurityAndInventoryTests : IDisposable
         Assert.IsType<OkObjectResult>((await controller.VerifyPayment(new VerifyPaymentRequest { Reference = order.PaymentReference! })).Result);
         Assert.Equal(3, await context.Products.Where(p => p.Id == product.Id).Select(p => p.StockQuantity).SingleAsync());
         Assert.Equal(1, service.VerifyCalls);
+        Assert.Equal(1, await context.EmailNotifications.CountAsync());
     }
 
     [Fact]
@@ -288,6 +295,58 @@ public sealed class PaymentSecurityAndInventoryTests : IDisposable
         Assert.IsType<ConflictObjectResult>((await shortController.VerifyPayment(new VerifyPaymentRequest { Reference = shortOrder.PaymentReference! })).Result);
         Assert.Equal("RefundRequired", (await context.Orders.AsNoTracking().SingleAsync(o => o.Id == shortOrder.Id)).PaymentStatus);
         Assert.Equal(1, await context.Products.Where(p => p.Id == lowStock.Id).Select(p => p.StockQuantity).SingleAsync());
+    }
+
+    [Fact]
+    public async Task Order_Creation_Uses_Selected_Variant_Price_And_Rejects_Missing_Size()
+    {
+        using var context = CreateContext();
+        var product = new Product { Name = "Fragrance", Description = "Test listing", Category = "Fragrances", Price = 90m, StockQuantity = 5, IsActive = true };
+        product.Variants.Add(new ProductVariant { Name = "50 ml", Price = 125m, StockQuantity = 2, IsActive = true });
+        context.Products.Add(product);
+        await context.SaveChangesAsync();
+        var variant = await context.ProductVariants.SingleAsync();
+        var controller = new OrdersController(context) { ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() } };
+
+        var request = new CreateOrderRequest
+        {
+            CustomerName = "Buyer", Email = "buyer@example.com", Phone = "0000000", Address = "1 Main",
+            City = "City", Province = "Province", PostalCode = "0000",
+            Items = new List<CreateOrderItemDto> { new() { ProductId = product.Id, VariantId = variant.Id, Quantity = 2 } }
+        };
+        var created = await controller.CreateOrder(request);
+        var createdResult = Assert.IsType<CreatedAtActionResult>(created.Result);
+        Assert.Equal(250m, Assert.IsType<CreateOrderResponseDto>(createdResult.Value).TotalAmount);
+        var savedLine = await context.OrderItems.SingleAsync();
+        Assert.Equal(variant.Id, savedLine.ProductVariantId);
+        Assert.Equal("50 ml", savedLine.SelectedVariantName);
+        Assert.Equal(125m, savedLine.UnitPrice);
+
+        request.Items[0].VariantId = null;
+        var missingSize = await controller.CreateOrder(request);
+        Assert.IsType<BadRequestObjectResult>(missingSize.Result);
+        Assert.Equal(1, await context.Orders.CountAsync());
+    }
+
+    [Fact]
+    public async Task Duplicate_Successful_Payment_Deducts_Selected_Variant_Stock_Once()
+    {
+        using var context = CreateContext();
+        var (_, product, order) = await SeedOrder(context, ownerId: -1, stock: 5, quantity: 2);
+        var variant = new ProductVariant { ProductId = product.Id, Name = "75 ml", Price = 100m, StockQuantity = 5, IsActive = true };
+        context.ProductVariants.Add(variant);
+        await context.SaveChangesAsync();
+        order.OrderItems.Single().ProductVariantId = variant.Id;
+        order.OrderItems.Single().SelectedVariantName = variant.Name;
+        await context.SaveChangesAsync();
+        var service = new TestPaystack { Verification = VerifyData(order) };
+        var controller = CreateController(context, service, userId: order.UserId, role: "Customer");
+
+        Assert.IsType<OkObjectResult>((await controller.VerifyPayment(new VerifyPaymentRequest { Reference = order.PaymentReference! })).Result);
+        Assert.IsType<OkObjectResult>((await controller.VerifyPayment(new VerifyPaymentRequest { Reference = order.PaymentReference! })).Result);
+        Assert.Equal(3, await context.ProductVariants.Where(v => v.Id == variant.Id).Select(v => v.StockQuantity).SingleAsync());
+        Assert.Equal(3, await context.Products.Where(p => p.Id == product.Id).Select(p => p.StockQuantity).SingleAsync());
+        Assert.Equal(1, service.VerifyCalls);
     }
 
     [Fact]
@@ -339,6 +398,57 @@ public sealed class PaymentSecurityAndInventoryTests : IDisposable
         Assert.Contains(results, r => r.Result is OkObjectResult);
         Assert.Equal(3, await read.Products.Select(p => p.StockQuantity).SingleAsync());
         Assert.Equal("Paid", (await read.Orders.SingleAsync()).PaymentStatus);
+        Assert.Equal(1, await read.EmailNotifications.CountAsync());
+    }
+
+    [Fact]
+    public async Task Concurrent_Webhook_And_Owner_Verification_Create_One_Confirmation()
+    {
+        int ownerId;
+        Order order;
+        using (var setup = CreateContext())
+        {
+            var (owner, _, createdOrder) = await SeedOrder(setup, ownerId: -1, stock: 5, quantity: 2);
+            ownerId = owner.Id;
+            order = createdOrder;
+        }
+        var gate = new TwoCallGate();
+        var provider = new TestPaystack { Verification = VerifyData(order), VerifyGate = gate };
+        var payload = JsonSerializer.Serialize(new { @event = "charge.success", data = new { reference = order.PaymentReference } });
+        var signature = SignWebhook(payload, "test-webhook-secret");
+        using var verifyDb = CreateContext();
+        using var webhookDb = CreateContext();
+        var verifyController = CreateController(verifyDb, provider, ownerId, "Customer");
+        var webhookController = CreateWebhookController(webhookDb, provider, payload, signature);
+
+        var verifyTask = verifyController.VerifyPayment(new VerifyPaymentRequest { Reference = order.PaymentReference! });
+        var webhookTask = webhookController.HandlePaystackWebhook(CancellationToken.None);
+        await Task.WhenAll((Task)verifyTask, webhookTask);
+
+        using var read = CreateContext();
+        var verifyResponse = await verifyTask;
+        var webhookResponse = await webhookTask;
+        Assert.True(verifyResponse.Result is OkObjectResult || webhookResponse is OkObjectResult);
+        Assert.Equal("Paid", (await read.Orders.SingleAsync(o => o.Id == order.Id)).PaymentStatus);
+        Assert.Equal(1, await read.EmailNotifications.CountAsync(n => n.OrderId == order.Id));
+        Assert.Equal(3, await read.Products.Select(p => p.StockQuantity).SingleAsync());
+    }
+
+    [Fact]
+    public async Task Expired_Paid_Provider_Response_Does_Not_Queue_Confirmation()
+    {
+        using var context = CreateContext();
+        var (_, _, order) = await SeedOrder(context, ownerId: -1);
+        order.PaymentExpiresAt = DateTime.UtcNow.AddMinutes(-1);
+        await context.SaveChangesAsync();
+        var provider = new TestPaystack { Verification = VerifyData(order) };
+        var controller = CreateController(context, provider, userId: order.UserId, role: "Customer");
+
+        var result = await controller.VerifyPayment(new VerifyPaymentRequest { Reference = order.PaymentReference! });
+
+        Assert.IsType<ConflictObjectResult>(result.Result);
+        Assert.Equal("RefundRequired", (await context.Orders.AsNoTracking().SingleAsync(o => o.Id == order.Id)).PaymentStatus);
+        Assert.Empty(await context.EmailNotifications.ToListAsync());
     }
 
     [Fact]

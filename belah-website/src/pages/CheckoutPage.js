@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { Link } from "react-router-dom";
 import { API_BASE_URL } from "../config/api";
+import { DELIVERY_FEE_ZAR } from "../config/commerce";
 import "./CheckoutPage.css";
 
 const readApiResponse = async (response) => {
@@ -19,6 +20,7 @@ const CheckOutPage = () => {
   const [currentStep, setCurrentStep] = useState(2);
   const [pendingOrder, setPendingOrder] = useState(null);
   const [orderError, setOrderError] = useState(null);
+  const [fieldErrors, setFieldErrors] = useState({});
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
   const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
   const [confirmedOrder, setConfirmedOrder] = useState(null);
@@ -43,6 +45,22 @@ const CheckOutPage = () => {
   useEffect(() => {
     const savedCart = JSON.parse(localStorage.getItem("cart")) || [];
     setCart(savedCart);
+    fetch(`${API_BASE_URL}/api/products`)
+      .then((response) => response.ok ? response.json() : null)
+      .then((products) => {
+        if (!products) return;
+        const updatedCart = savedCart.map((item) => {
+          const product = products.find((p) => p.id === item.id);
+          if (!product) return item;
+          const variant = item.variantId ? (product.variants || []).find((v) => v.id === item.variantId) : null;
+          const regularPrice = Number(variant?.price ?? product.price ?? item.price);
+          const salePrice = product.isPriceApproved === false ? null : variant ? variant.salePrice : product.salePrice;
+          return { ...item, regularPrice, price: salePrice != null ? Number(salePrice) : regularPrice };
+        });
+        setCart(updatedCart);
+        localStorage.setItem("cart", JSON.stringify(updatedCart));
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -86,12 +104,14 @@ const CheckOutPage = () => {
       .finally(() => setIsVerifyingPayment(false));
   }, []);
 
-  const totalAmount = cart.reduce(
+  const subtotalAmount = cart.reduce(
     (total, item) => total + item.price * item.quantity,
     0
   );
+  const totalAmount = subtotalAmount + DELIVERY_FEE_ZAR;
   const handleChange = (e) => {
     setUserDetails({ ...userDetails, [e.target.name]: e.target.value });
+    setFieldErrors((current) => ({ ...current, [e.target.name]: '' }));
   };
 
   // Step 1: Create a pending order on the backend with server-side pricing & stock validation
@@ -111,14 +131,22 @@ const CheckOutPage = () => {
       postalCode: userDetails.postalCode.trim(),
       items: cart.map((item) => ({
         productId: item.id,
+        variantId: item.variantId || null,
         quantity: item.quantity,
         selectedColor: item.selectedColor || null,
         selectedStorage: item.selectedStorage || null,
       })),
     };
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(orderPayload.email) || orderPayload.phone.length < 7 || orderPayload.items.length === 0 || orderPayload.items.some((item) => !Number.isInteger(item.quantity) || item.quantity < 1)) {
-      setOrderError('Enter a valid email and phone number, and make sure your cart contains valid quantities.');
+    const emailInvalid = !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(orderPayload.email);
+    const phoneInvalid = orderPayload.phone.replace(/\D/g, '').length < 7;
+    const cartInvalid = orderPayload.items.length === 0 || orderPayload.items.some((item) => !Number.isInteger(item.quantity) || item.quantity < 1);
+    if (emailInvalid || phoneInvalid || cartInvalid) {
+      setFieldErrors({
+        email: emailInvalid ? 'Enter a valid email address, for example name@example.com.' : '',
+        phone: phoneInvalid ? 'Enter a valid cell phone number with at least 7 digits.' : '',
+      });
+      setOrderError(cartInvalid ? 'Your cart contains an invalid item quantity. Please review your cart.' : null);
       setIsCreatingOrder(false);
       createOrderInFlight.current = false;
       return null;
@@ -212,7 +240,7 @@ const CheckOutPage = () => {
           <div style={{ fontSize: "3rem", marginBottom: "16px" }}>🎉</div>
           <h2 style={{ color: "#065f46", marginBottom: "8px" }}>Order Confirmed & Paid!</h2>
           <p style={{ color: "#374151", fontSize: "1.1rem" }}>
-            Thank you for shopping with Belah Hair. Your payment has been verified directly by our server.
+            Thank you for shopping with Belah. Your payment has been verified directly by our server.
           </p>
           <div style={{ background: "#f9fafb", padding: "20px", borderRadius: "8px", margin: "24px auto", maxWidth: "450px" }}>
             <p><strong>Order Number:</strong> {confirmedOrder.orderNumber}</p>
@@ -257,7 +285,7 @@ const CheckOutPage = () => {
     return (
       <div className="checkout-page" style={{ textAlign: "center", padding: "50px 20px" }}>
         <h2>Your cart is empty</h2>
-        <p style={{ color: "#6b7280", marginTop: "10px" }}>Discover our luxury hair collection and bundles.</p>
+        <p style={{ color: "#6b7280", marginTop: "10px" }}>Browse fragrances, accessories, beauty, and more.</p>
         <Link to="/products" className="proceed-to-payment-btn" style={{ textDecoration: "none", display: "inline-block", maxWidth: "220px", marginTop: "20px" }}>
           Browse Products
         </Link>
@@ -281,73 +309,120 @@ const CheckOutPage = () => {
         <ul>
           {cart.map((item, index) => (
             <li key={index}>
-              {item.name} x{item.quantity} - R{(item.price * item.quantity).toFixed(2)}
+              {item.name}{item.selectedVariantName ? ` · ${item.selectedVariantName}` : ''} x{item.quantity} - R{(item.price * item.quantity).toFixed(2)}
             </li>
           ))}
         </ul>
+        <p>Items subtotal: <strong>R{(pendingOrder?.subtotalAmount ?? subtotalAmount).toFixed(2)}</strong></p>
+        <p>Fixed delivery fee: <strong>R{(pendingOrder?.deliveryFee ?? DELIVERY_FEE_ZAR).toFixed(2)}</strong></p>
         <h3>Total: R{(pendingOrder?.totalAmount ?? totalAmount).toFixed(2)}</h3>
+        <p className="delivery-fee-note">The R{DELIVERY_FEE_ZAR.toFixed(2)} delivery fee is included in the amount payable.</p>
       </div>
 
       {/* Delivery Details Form */}
       {currentStep === 2 && (
         <div className="delivery-details">
           <h3>Delivery Details</h3>
+          <div className="checkout-field">
+          <label htmlFor="checkout-name">Full name</label>
           <input
+            id="checkout-name"
             type="text"
             name="name"
-            placeholder="Full Name"
+            autoComplete="name"
+            placeholder="e.g. Jane Smith"
             value={userDetails.name}
             onChange={handleChange}
             required
           />
+          </div>
+          <div className="checkout-field">
+          <label htmlFor="checkout-email">Email address</label>
           <input
+            id="checkout-email"
             type="email"
             name="email"
-            placeholder="Email Address"
+            autoComplete="email"
+            inputMode="email"
+            placeholder="name@example.com"
             value={userDetails.email}
             onChange={handleChange}
+            aria-invalid={Boolean(fieldErrors.email)}
+            aria-describedby={fieldErrors.email ? 'checkout-email-error' : undefined}
             required
           />
+          {fieldErrors.email && <p className="checkout-field-error" id="checkout-email-error">{fieldErrors.email}</p>}
+          </div>
+          <div className="checkout-field">
+          <label htmlFor="checkout-phone">Cell phone number</label>
           <input
-            type="text"
+            id="checkout-phone"
+            type="tel"
             name="phone"
-            placeholder="Phone Number (e.g. 082 123 4567)"
+            autoComplete="tel"
+            inputMode="tel"
+            placeholder="e.g. 082 123 4567"
             value={userDetails.phone}
             onChange={handleChange}
+            aria-invalid={Boolean(fieldErrors.phone)}
+            aria-describedby={fieldErrors.phone ? 'checkout-phone-error' : undefined}
             required
           />
+          {fieldErrors.phone && <p className="checkout-field-error" id="checkout-phone-error">{fieldErrors.phone}</p>}
+          </div>
+          <div className="checkout-field">
+          <label htmlFor="checkout-address">Delivery street address</label>
           <input
+            id="checkout-address"
             type="text"
             name="address"
-            placeholder="Delivery Street Address"
+            autoComplete="street-address"
+            placeholder="Street and building number"
             value={userDetails.address}
             onChange={handleChange}
             required
           />
+          </div>
+          <div className="checkout-field">
+          <label htmlFor="checkout-city">City or town</label>
           <input
+            id="checkout-city"
             type="text"
             name="city"
-            placeholder="City"
+            autoComplete="address-level2"
+            placeholder="City or town"
             value={userDetails.city}
             onChange={handleChange}
             required
           />
+          </div>
+          <div className="checkout-field">
+          <label htmlFor="checkout-province">Province</label>
           <input
+            id="checkout-province"
             type="text"
             name="province"
-            placeholder="Province (e.g. Gauteng, Western Cape)"
+            autoComplete="address-level1"
+            placeholder="e.g. Gauteng"
             value={userDetails.province}
             onChange={handleChange}
             required
           />
+          </div>
+          <div className="checkout-field">
+          <label htmlFor="checkout-postal-code">Postal code</label>
           <input
+            id="checkout-postal-code"
             type="text"
             name="postalCode"
-            placeholder="Postal Code"
+            autoComplete="postal-code"
+            inputMode="numeric"
+            placeholder="Postal code"
             value={userDetails.postalCode}
             onChange={handleChange}
             required
           />
+          </div>
 
           {orderError && (
             <div className="order-error" role="alert" aria-live="assertive">

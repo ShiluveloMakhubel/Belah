@@ -280,6 +280,75 @@ namespace Belah_Backend.Tests
         }
 
         [Fact]
+        public async Task Product_Create_Persists_Brand_And_Variant_Prices_Stock_And_Image_And_SKUs_Are_Unique()
+        {
+            using var context = CreateInMemoryDbContext();
+            var productDto = new CreateProductDto
+            {
+                Name = "Fragrance", Description = "Verified product details", Category = "Fragrances",
+                Brand = "Example House", ProductType = "Eau de Parfum", Price = 0, StockQuantity = 0,
+                ImageUrl = "/images/product-placeholder.svg",
+                Variants = new List<ProductVariantDto>
+                {
+                    new() { Name = "50 ml", Sku = "FRAG-50", Price = 900, StockQuantity = 2 },
+                    new() { Name = "100 ml", Sku = "FRAG-100", Price = 1400, StockQuantity = 3 }
+                }
+            };
+            var result = await ProductController(context).CreateProduct(productDto);
+            var created = Assert.IsType<CreatedAtActionResult>(result.Result);
+            var saved = Assert.IsType<Product>(created.Value);
+            Assert.Equal("Example House", saved.Brand);
+            Assert.Equal(900m, saved.Price);
+            Assert.Equal(5, saved.StockQuantity);
+            Assert.Equal(2, await context.ProductVariants.CountAsync());
+
+            var duplicateSku = await ProductController(context).CreateProduct(new CreateProductDto
+            {
+                Name = "Other fragrance", Description = "Details", Category = "Fragrances", Price = 2,
+                ImageUrl = "/images/product-placeholder.svg", Variants = new List<ProductVariantDto>
+                {
+                    new() { Name = "50 ml", Sku = "FRAG-50", Price = 2, StockQuantity = 1 }
+                }
+            });
+            Assert.IsType<ConflictObjectResult>(duplicateSku.Result);
+            Assert.Equal(1, await context.Products.CountAsync());
+        }
+
+        [Fact]
+        public async Task Admin_Can_Remove_Product_Image_Reference_Without_Deleting_Product()
+        {
+            using var context = CreateInMemoryDbContext();
+            var product = new Product { Name = "Fragrance", Description = "Details", Category = "Fragrances", Price = 1, StockQuantity = 1, ImageUrl = "/uploads/owned.png" };
+            context.Products.Add(product);
+            await context.SaveChangesAsync();
+            var result = await ProductController(context).UpdateProduct(product.Id, new UpdateProductDto
+            {
+                Name = product.Name, Description = product.Description, Category = product.Category,
+                Price = product.Price, StockQuantity = product.StockQuantity, RemoveImage = true
+            });
+            Assert.IsType<OkObjectResult>(result);
+            Assert.Null((await context.Products.SingleAsync()).ImageUrl);
+        }
+
+        [Fact]
+        public async Task Admin_Manages_Categories_And_Renaming_Updates_Assigned_Products()
+        {
+            using var context = CreateInMemoryDbContext();
+            var admin = new ProductCategoriesController(context) { ControllerContext = CreateControllerContext("Admin") };
+            var created = await admin.Create(new SaveProductCategoryDto { Name = "Fragrances", IsActive = true });
+            var categoryResult = Assert.IsType<CreatedAtActionResult>(created.Result);
+            var category = Assert.IsType<ProductCategoryDto>(categoryResult.Value);
+            var product = new Product { Name = "Test scent", Description = "Details", Category = category.Name, CategoryId = category.Id, Price = 10 };
+            context.Products.Add(product);
+            await context.SaveChangesAsync();
+
+            var updated = await admin.Update(category.Id, new SaveProductCategoryDto { Name = "Scents", IsActive = true });
+            Assert.IsType<OkObjectResult>(updated.Result);
+            Assert.Equal("Scents", (await context.Products.SingleAsync()).Category);
+            Assert.Equal("scents", (await context.ProductCategories.SingleAsync()).Slug);
+        }
+
+        [Fact]
         public async Task Duplicate_SKU_Is_Rejected_On_Create_And_Update()
         {
             using var context = CreateInMemoryDbContext();
@@ -330,13 +399,19 @@ namespace Belah_Backend.Tests
             using var context = CreateInMemoryDbContext();
             var hidden = new Product { Name = "Hidden wig", Description = "Details", Category = "Wigs", Price = 500, StockQuantity = 5, IsActive = false };
             var lowStock = new Product { Name = "Low stock wig", Description = "Details", Category = "Wigs", Price = 500, StockQuantity = 1, IsActive = true };
-            context.Products.AddRange(hidden, lowStock);
+            var unconfirmedStock = new Product { Name = "Unconfirmed wig", Description = "Details", Category = "Wigs", Price = 500, StockQuantity = 5, IsActive = true, IsStockConfirmed = false };
+            var unapprovedPrice = new Product { Name = "Unpriced wig", Description = "Details", Category = "Wigs", Price = 500, StockQuantity = 5, IsActive = true, IsPriceApproved = false };
+            context.Products.AddRange(hidden, lowStock, unconfirmedStock, unapprovedPrice);
             await context.SaveChangesAsync();
             var controller = new OrdersController(context) { ControllerContext = CreateControllerContext() };
             var request = new CreateOrderRequest { CustomerName = "Buyer", Email = "buyer@example.com", Phone = "123456789", Address = "1 Main", City = "Cape Town", Province = "Western Cape", PostalCode = "8001" };
             request.Items.Add(new CreateOrderItemDto { ProductId = hidden.Id, Quantity = 1 });
             Assert.IsType<BadRequestObjectResult>((await controller.CreateOrder(request)).Result);
             request.Items = new List<CreateOrderItemDto> { new() { ProductId = lowStock.Id, Quantity = 2 } };
+            Assert.IsType<ConflictObjectResult>((await controller.CreateOrder(request)).Result);
+            request.Items = new List<CreateOrderItemDto> { new() { ProductId = unconfirmedStock.Id, Quantity = 1 } };
+            Assert.IsType<ConflictObjectResult>((await controller.CreateOrder(request)).Result);
+            request.Items = new List<CreateOrderItemDto> { new() { ProductId = unapprovedPrice.Id, Quantity = 1 } };
             Assert.IsType<ConflictObjectResult>((await controller.CreateOrder(request)).Result);
             Assert.Empty(context.Orders);
             Assert.Equal(1, lowStock.StockQuantity);

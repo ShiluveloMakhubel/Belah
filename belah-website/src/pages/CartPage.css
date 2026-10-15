@@ -26,6 +26,14 @@
   flex: 1;
 }
 
+.cart-price-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cart-price-line del, .card-price del, .featured-product-price del, .product-detail-price del { color: #737373; font-size: .92em; font-weight: 400; }
+.cart-summary { max-width: 460px; margin: 22px 0 0 auto; padding: 18px; border: 1px solid #e7e1d7; border-radius: 12px; background: #fbfaf8; }
+.cart-summary p { display: flex; justify-content: space-between; gap: 12px; margin: 8px 0; }
+.cart-summary h3 { display: flex; justify-content: space-between; border-top: 1px solid #ded8ce; padding-top: 12px; margin-top: 12px; }
+.delivery-fee-note { color: #626262; font-size: .88rem; }
+.sale-badge { display: inline-block; margin-left: 8px; padding: 3px 8px; border-radius: 999px; background: #fce8e6; color: #9c2f25; font-size: .72rem; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; }
+
 .cart-color {
   display: flex;
   align-items: center;

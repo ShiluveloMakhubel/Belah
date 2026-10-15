@@ -21,6 +21,7 @@ namespace Belah_Backend.Controllers
     {
         private readonly ApplicationDbContext _context;
         private readonly IWebHostEnvironment _environment;
+        private readonly string? _configuredUploadsPath;
 
         // Image upload constraints
         private const long MaxFileSizeInBytes = 5 * 1024 * 1024; // 5 MB
@@ -33,10 +34,11 @@ namespace Belah_Backend.Controllers
             "image/jpeg", "image/png", "image/webp", "image/gif"
         };
 
-        public ProductsController(ApplicationDbContext context, IWebHostEnvironment environment)
+        public ProductsController(ApplicationDbContext context, IWebHostEnvironment environment, IConfiguration? configuration = null)
         {
             _context = context;
             _environment = environment;
+            _configuredUploadsPath = configuration?["Uploads:Path"];
         }
 
         // 1. GET: api/products
@@ -54,7 +56,13 @@ namespace Belah_Backend.Controllers
                 query = query.Where(p => p.IsActive);
             }
 
+            query = query.Include(p => p.Variants);
             var products = await query.ToListAsync();
+            if (!allowInactive)
+            {
+                foreach (var product in products)
+                    product.Variants = product.Variants.Where(v => v.IsActive).ToList();
+            }
             return Ok(products);
         }
 
@@ -63,7 +71,7 @@ namespace Belah_Backend.Controllers
         [HttpGet("{id}")]
         public async Task<ActionResult<Product>> GetProduct(int id, [FromQuery] bool includeInactive = false)
         {
-            var product = await _context.Products.FindAsync(id);
+            var product = await _context.Products.Include(p => p.Variants).FirstOrDefaultAsync(p => p.Id == id);
             if (product == null)
             {
                 return NotFound(new { message = $"Product with ID {id} not found." });
@@ -75,6 +83,8 @@ namespace Belah_Backend.Controllers
             {
                 return NotFound(new { message = "Product is inactive and unavailable." });
             }
+
+            if (!allowInactive) product.Variants = product.Variants.Where(v => v.IsActive).ToList();
 
             return Ok(product);
         }
@@ -90,6 +100,8 @@ namespace Belah_Backend.Controllers
                 return BadRequest("Product data cannot be null.");
             }
 
+            dto.Variants ??= new List<ProductVariantDto>();
+
             if (!ModelState.IsValid)
             {
                 return BadRequest(ModelState);
@@ -97,6 +109,8 @@ namespace Belah_Backend.Controllers
 
             var validationError = ValidateProduct(dto.Name, dto.Description, dto.Category, dto.Price, dto.StockQuantity, dto.ImageUrl, dto.Specification);
             if (validationError != null) return BadRequest(new { message = validationError });
+            if (dto.SalePrice.HasValue && (dto.SalePrice <= 0 || dto.SalePrice >= dto.Price || decimal.Round(dto.SalePrice.Value, 2) != dto.SalePrice.Value))
+                return BadRequest(new { message = "Sale price must be lower than the regular price and have at most two decimal places." });
             if (string.IsNullOrWhiteSpace(dto.ImageUrl)) return BadRequest(new { message = "A product image URL or uploaded image is required." });
 
             if (dto.StockQuantity < 0)
@@ -112,14 +126,34 @@ namespace Belah_Backend.Controllers
             // Product defaults
             dto.Sku = string.IsNullOrWhiteSpace(dto.Sku) ? null : dto.Sku.Trim();
 
-            if (dto.Sku != null && await _context.Products.AnyAsync(p => p.Sku == dto.Sku))
+            var variantsError = ValidateVariants(dto.Variants);
+            if (variantsError != null) return BadRequest(new { message = variantsError });
+            if (dto.Variants.Any(v => v.SalePrice.HasValue && (v.SalePrice <= 0 || v.SalePrice >= v.Price || decimal.Round(v.SalePrice.Value, 2) != v.SalePrice.Value)))
+                return BadRequest(new { message = "Each sale price must be lower than its regular variant price and have at most two decimal places." });
+            if (dto.Variants.Any(v => v.Id.HasValue)) return BadRequest(new { message = "New products cannot reference existing variant IDs." });
+            var variantSkuError = await ValidateVariantSkus(dto.Sku, dto.Variants);
+            if (variantSkuError != null) return Conflict(new { message = variantSkuError });
+            if (dto.Sku != null && await SkuExists(dto.Sku))
                 return Conflict(new { message = "A product with this SKU already exists." });
+
+            var category = await ResolveCategory(dto.CategoryId, dto.Category);
+            if (category.Error != null) return BadRequest(new { message = category.Error });
+            var productPrice = dto.Variants.Count == 0 ? dto.Price : dto.Variants.Where(v => v.IsActive).Select(v => v.Price).DefaultIfEmpty(dto.Price).Min();
+            var productStock = dto.Variants.Count == 0 ? dto.StockQuantity : dto.Variants.Where(v => v.IsActive).Sum(v => (long)v.StockQuantity);
+            if (productStock > int.MaxValue) return BadRequest(new { message = "Combined variant stock is too large." });
 
             var product = new Product
             {
-                Name = dto.Name!.Trim(), Description = dto.Description!.Trim(), Price = dto.Price,
-                Category = dto.Category!.Trim(), ImageUrl = dto.ImageUrl!.Trim(), Specification = dto.Specification,
-                Sku = dto.Sku, StockQuantity = dto.StockQuantity, IsActive = dto.IsActive
+                Name = dto.Name!.Trim(), Description = dto.Description!.Trim(), Price = productPrice,
+                SalePrice = dto.Variants.Count == 0 ? dto.SalePrice : null,
+                Category = category.Name, CategoryId = category.Id,
+                Brand = CleanOptional(dto.Brand), ProductType = CleanOptional(dto.ProductType),
+                IsFeatured = dto.IsFeatured, IsPriceApproved = dto.IsPriceApproved,
+                IsStockConfirmed = dto.IsStockConfirmed,
+                ImageUrl = dto.ImageUrl!.Trim(), Specification = dto.Specification,
+                Sku = dto.Sku, StockQuantity = (int)productStock, IsActive = dto.IsActive,
+                CreatedAtUtc = DateTime.UtcNow, UpdatedAtUtc = DateTime.UtcNow,
+                Variants = dto.Variants.Select(ToVariant).ToList()
             };
 
             await _context.Products.AddAsync(product);
@@ -141,6 +175,8 @@ namespace Belah_Backend.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> UpdateProduct(int id, [FromBody] UpdateProductDto dto)
         {
+            if (dto == null) return BadRequest(new { message = "Product data cannot be null." });
+            dto.Variants ??= new List<ProductVariantDto>();
             if (!ModelState.IsValid)
             {
                 return BadRequest(ModelState);
@@ -148,9 +184,17 @@ namespace Belah_Backend.Controllers
 
             var validationError = ValidateProduct(dto.Name, dto.Description, dto.Category, dto.Price, dto.StockQuantity, dto.ImageUrl, dto.Specification);
             if (validationError != null) return BadRequest(new { message = validationError });
+            if (dto.Variants.Count == 0 && dto.SalePrice.HasValue && (dto.SalePrice <= 0 || dto.SalePrice >= dto.Price || decimal.Round(dto.SalePrice.Value, 2) != dto.SalePrice.Value))
+                return BadRequest(new { message = "Sale price must be lower than the regular price and have at most two decimal places." });
 
             dto.Sku = string.IsNullOrWhiteSpace(dto.Sku) ? null : dto.Sku.Trim();
-            if (dto.Sku != null && await _context.Products.AnyAsync(p => p.Id != id && p.Sku == dto.Sku))
+            var variantsError = ValidateVariants(dto.Variants);
+            if (variantsError != null) return BadRequest(new { message = variantsError });
+            if (dto.Variants.Any(v => v.SalePrice.HasValue && (v.SalePrice <= 0 || v.SalePrice >= v.Price || decimal.Round(v.SalePrice.Value, 2) != v.SalePrice.Value)))
+                return BadRequest(new { message = "Each sale price must be lower than its regular variant price and have at most two decimal places." });
+            var variantSkuError = await ValidateVariantSkus(dto.Sku, dto.Variants);
+            if (variantSkuError != null) return Conflict(new { message = variantSkuError });
+            if (dto.Sku != null && await SkuExists(dto.Sku, id))
                 return Conflict(new { message = "A product with this SKU already exists." });
 
             if (dto.StockQuantity < 0)
@@ -163,21 +207,46 @@ namespace Belah_Backend.Controllers
                 return BadRequest(new { message = "Price cannot be negative." });
             }
 
-            var product = await _context.Products.FindAsync(id);
+            var product = await _context.Products.Include(p => p.Variants).FirstOrDefaultAsync(p => p.Id == id);
             if (product == null)
             {
                 return NotFound(new { message = $"Product with ID {id} not found." });
             }
 
-            product.Name = dto.Name;
-            product.Description = dto.Description;
-            product.Price = dto.Price;
-            if (!string.IsNullOrWhiteSpace(dto.ImageUrl)) product.ImageUrl = dto.ImageUrl;
-            product.Category = dto.Category;
+            if (dto.Variants.Any(v => v.Id.HasValue && !product.Variants.Any(existing => existing.Id == v.Id.Value)))
+                return BadRequest(new { message = "A selected size or option does not belong to this product." });
+
+            var category = await ResolveCategory(dto.CategoryId, dto.Category);
+            if (category.Error != null) return BadRequest(new { message = category.Error });
+            product.Name = dto.Name!.Trim();
+            product.Description = dto.Description!.Trim();
+            product.Price = dto.Variants.Count == 0 ? dto.Price : dto.Variants.Where(v => v.IsActive).Select(v => v.Price).DefaultIfEmpty(dto.Price).Min();
+            product.SalePrice = dto.Variants.Count == 0 ? dto.SalePrice : null;
+            if (dto.RemoveImage) product.ImageUrl = null;
+            else if (!string.IsNullOrWhiteSpace(dto.ImageUrl)) product.ImageUrl = dto.ImageUrl.Trim();
+            product.Category = category.Name;
+            product.CategoryId = category.Id;
             product.Specification = dto.Specification;
             product.Sku = dto.Sku;
-            product.StockQuantity = dto.StockQuantity;
+            product.Brand = CleanOptional(dto.Brand);
+            product.ProductType = CleanOptional(dto.ProductType);
+            product.IsFeatured = dto.IsFeatured;
+            product.IsPriceApproved = dto.IsPriceApproved;
+            product.IsStockConfirmed = dto.IsStockConfirmed;
+            if (dto.Variants.Count == 0)
+            {
+                // Existing variant inventory is retained unless replacement variants are explicitly supplied.
+                if (product.Variants.Count == 0) product.StockQuantity = dto.StockQuantity;
+            }
+            else
+            {
+                var variantStock = dto.Variants.Where(v => v.IsActive).Sum(v => (long)v.StockQuantity);
+                if (variantStock > int.MaxValue) return BadRequest(new { message = "Combined variant stock is too large." });
+                SyncVariants(product, dto.Variants);
+                product.StockQuantity = (int)variantStock;
+            }
             product.IsActive = dto.IsActive;
+            product.UpdatedAtUtc = DateTime.UtcNow;
 
             try
             {
@@ -208,7 +277,11 @@ namespace Belah_Backend.Controllers
                 return NotFound(new { message = $"Product with ID {id} not found." });
             }
 
+            if (await _context.ProductVariants.AnyAsync(v => v.ProductId == id))
+                return Conflict(new { message = "This product has size variants. Update stock on each variant instead." });
+
             product.StockQuantity = request.StockQuantity;
+            product.UpdatedAtUtc = DateTime.UtcNow;
             await _context.SaveChangesAsync();
 
             return Ok(new
@@ -237,6 +310,7 @@ namespace Belah_Backend.Controllers
             }
 
             product.IsActive = request.IsActive;
+            product.UpdatedAtUtc = DateTime.UtcNow;
             await _context.SaveChangesAsync();
 
             return Ok(new
@@ -277,9 +351,11 @@ namespace Belah_Backend.Controllers
             if (!await HasValidImageSignature(file, extension))
                 return BadRequest(new { message = "The uploaded file content is not a valid image of the selected type." });
 
-            // Define the folder where files are stored inside wwwroot
+            // Use a configured durable mount when provided; otherwise retain the local wwwroot behavior.
             var webRoot = _environment.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-            var folderPath = Path.Combine(webRoot, "uploads");
+            var folderPath = string.IsNullOrWhiteSpace(_configuredUploadsPath)
+                ? Path.Combine(webRoot, "uploads")
+                : Path.GetFullPath(_configuredUploadsPath);
 
             if (!Directory.Exists(folderPath))
             {
@@ -317,11 +393,95 @@ namespace Belah_Backend.Controllers
             return null;
         }
 
+        private async Task<(int? Id, string Name, string? Error)> ResolveCategory(int? categoryId, string? fallbackName)
+        {
+            if (categoryId.HasValue)
+            {
+                var category = await _context.ProductCategories.FirstOrDefaultAsync(c => c.Id == categoryId.Value && c.IsActive);
+                return category == null
+                    ? (null, string.Empty, "Select an active product category.")
+                    : (category.Id, category.Name, null);
+            }
+            return (null, fallbackName?.Trim() ?? string.Empty, null);
+        }
+
+        private async Task<bool> SkuExists(string sku, int? excludingProductId = null)
+        {
+            var normalized = sku.Trim();
+            return await _context.Products.AnyAsync(p => p.Sku == normalized && (!excludingProductId.HasValue || p.Id != excludingProductId.Value)) ||
+                await _context.ProductVariants.AnyAsync(v => v.Sku == normalized);
+        }
+
+        private async Task<string?> ValidateVariantSkus(string? productSku, IReadOnlyCollection<ProductVariantDto>? variants)
+        {
+            if (variants == null || variants.Count == 0) return null;
+            var normalizedProductSku = CleanOptional(productSku);
+            var entries = variants.Where(v => !string.IsNullOrWhiteSpace(v.Sku)).ToList();
+            if (normalizedProductSku != null && entries.Any(v => string.Equals(v.Sku!.Trim(), normalizedProductSku, StringComparison.OrdinalIgnoreCase)))
+                return "The product SKU and its variant SKUs must be different.";
+            foreach (var variant in entries)
+            {
+                var sku = variant.Sku!.Trim();
+                if (await _context.Products.AnyAsync(p => p.Sku == sku) ||
+                    await _context.ProductVariants.AnyAsync(v => v.Sku == sku && (!variant.Id.HasValue || v.Id != variant.Id.Value)))
+                    return "A product with this SKU already exists.";
+            }
+            return null;
+        }
+
+        private static string? ValidateVariants(IReadOnlyCollection<ProductVariantDto>? variants)
+        {
+            if (variants == null || variants.Count == 0) return null;
+            if (variants.Any(v => string.IsNullOrWhiteSpace(v.Name) || v.Name.Trim().Length > 100))
+                return "Each size or option needs a name of at most 100 characters.";
+            if (variants.Select(v => v.Name.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Count() != variants.Count)
+                return "Variant names must be unique within a product.";
+            if (variants.Any(v => v.Price < 0 || v.Price > 1000000m || decimal.Round(v.Price, 2) != v.Price))
+                return "Variant prices must be between R0.00 and R1,000,000.00 with at most two decimal places.";
+            if (variants.Any(v => v.StockQuantity < 0)) return "Variant stock cannot be negative.";
+            var skus = variants.Where(v => !string.IsNullOrWhiteSpace(v.Sku)).Select(v => v.Sku!.Trim()).ToList();
+            if (skus.Distinct(StringComparer.OrdinalIgnoreCase).Count() != skus.Count)
+                return "Variant SKUs must be unique.";
+            return null;
+        }
+
+        private static string? CleanOptional(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+        private static ProductVariant ToVariant(ProductVariantDto dto) => new()
+        {
+            Name = dto.Name.Trim(), Sku = CleanOptional(dto.Sku), Price = dto.Price, SalePrice = dto.SalePrice,
+            StockQuantity = dto.StockQuantity, IsActive = dto.IsActive, ImageUrl = CleanOptional(dto.ImageUrl)
+        };
+
+        private static void SyncVariants(Product product, IEnumerable<ProductVariantDto> variants)
+        {
+            var incoming = variants.ToList();
+            foreach (var existing in product.Variants)
+            {
+                var update = incoming.FirstOrDefault(v => v.Id == existing.Id);
+                if (update == null)
+                {
+                    // Keep rows referenced by historical orders; make omitted options unavailable.
+                    existing.IsActive = false;
+                    continue;
+                }
+                existing.Name = update.Name.Trim();
+                existing.Sku = CleanOptional(update.Sku);
+                existing.Price = update.Price;
+                existing.SalePrice = update.SalePrice;
+                existing.StockQuantity = update.StockQuantity;
+                existing.IsActive = update.IsActive;
+                existing.ImageUrl = CleanOptional(update.ImageUrl);
+            }
+            foreach (var add in incoming.Where(v => !v.Id.HasValue)) product.Variants.Add(ToVariant(add));
+        }
+
         private static bool IsSkuUniqueConstraintViolation(DbUpdateException exception)
         {
             var message = exception.InnerException?.Message;
             return message != null && (
                 message.Contains("IX_Products_Sku", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("IX_ProductVariants_Sku", StringComparison.OrdinalIgnoreCase) ||
                 message.Contains("UNIQUE constraint failed: Products.Sku", StringComparison.OrdinalIgnoreCase));
         }
 

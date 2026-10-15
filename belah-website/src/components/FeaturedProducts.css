@@ -2,7 +2,11 @@
     text-align: center;
     padding: 20px;
   }
-  
+
+.featured-product-price { display: flex; justify-content: center; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.featured-product-price del { color: #737373; }
+.featured-product-price strong { color: #9b7419; }
+
   .featured-products h2 {
     font-size: 2em;
     margin-bottom: 20px;
@@ -60,4 +64,3 @@
     color: #555;
     margin-top: 20px;
   }
-  

@@ -13,7 +13,8 @@ const FeaturedProducts = () => {
         const res = await fetch(`${API_BASE_URL}/api/products`);
         if (!res.ok) return;
         const data = await res.json();
-        setProducts(data.slice(0, 4));
+        const featured = data.filter((product) => product.isFeatured);
+        setProducts((featured.length ? featured : data).slice(0, 4));
       } catch (error) {
         console.error('Error fetching products:', error);
       } finally {
@@ -38,7 +39,16 @@ const FeaturedProducts = () => {
               onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = '/images/product-placeholder.svg'; }}
             />
             <h3>{product.name}</h3>
-            <p style={{ fontWeight: '600', color: '#c59b27' }}>R{product.price ? product.price.toFixed(2) : '0.00'}</p>
+            {(() => {
+              const variants = (product.variants || []).filter((variant) => variant.isActive !== false);
+              const lowestVariant = variants.length ? variants.reduce((lowest, variant) => Number(variant.salePrice ?? variant.price) < Number(lowest.salePrice ?? lowest.price) ? variant : lowest) : null;
+              const regularPrice = Number(lowestVariant?.price ?? product.price ?? 0);
+              const salePrice = lowestVariant ? lowestVariant.salePrice : product.salePrice;
+              const currentPrice = Number(salePrice ?? regularPrice);
+              const isOnSale = product.isPriceApproved !== false && salePrice != null && currentPrice < regularPrice;
+              const label = product.isPriceApproved === false ? (Number(product.price) > 0 ? `Indicative · R${Number(product.price).toFixed(2)}` : 'Price pending approval') : `${variants.length ? 'From ' : ''}R${currentPrice.toFixed(2)}`;
+              return <p className={`featured-product-price${isOnSale ? ' sale-price' : ''}`}>{isOnSale && <del>R{regularPrice.toFixed(2)}</del>}<strong>{label}</strong>{isOnSale && <span className="sale-badge">Save R{(regularPrice - currentPrice).toFixed(2)}</span>}</p>;
+            })()}
           </Link>
         ))}
       </div>
